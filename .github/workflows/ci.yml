@@ -1,0 +1,30 @@
+name: Tests
+
+# Runs the static checks on every push and pull request: the manifests, the generated glyph pages and
+# colour table, the pack icons, and the names the scripts import from each other.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install Pillow and pytest
+        run: python3 -m pip install --upgrade pillow pytest
+
+      - name: Run the tests
+        run: python3 -m pytest tests -q
+
+      - name: Check the add-on archive is up to date
+        run: python3 tools/build_addon.py --check

@@ -1,0 +1,39 @@
+{
+	"format_version": 2,
+	"header": {
+		"name": "Minimap",
+		"description": "A top-down minimap in the corner of the screen, drawn from the blocks around you",
+		"uuid": "00ceaf12-5d88-4c73-a0db-9e7d399b9834",
+		"version": [1, 0, 0],
+		"min_engine_version": [1, 26, 0]
+	},
+	"modules": [
+		{
+			"description": "Samples the terrain and draws the map",
+			"type": "script",
+			"language": "javascript",
+			"uuid": "64bf02f7-26a7-4d2c-9130-aa47134f4ef2",
+			"version": [1, 0, 0],
+			"entry": "scripts/main.js"
+		}
+	],
+	"dependencies": [
+		{
+			"module_name": "@minecraft/server",
+			"version": "2.6.0"
+		},
+		{
+			"module_name": "@minecraft/server-ui",
+			"version": "2.1.0"
+		},
+		{
+			"uuid": "027cfb8f-ede1-4d7e-a13c-ff087a20f99b",
+			"version": [1, 0, 0]
+		}
+	],
+	"metadata": {
+		"authors": ["Kirbycope"],
+		"license": "MIT",
+		"url": "https://github.com/kirbycope/minimap-bedrock"
+	}
+}

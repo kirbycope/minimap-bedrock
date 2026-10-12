@@ -1,0 +1,9 @@
+# the watchdog skill's run logs
+/watchdog/
+
+# Python bytecode
+__pycache__/
+
+# screenshots taken while working
+/captures/
+.pytest_cache/

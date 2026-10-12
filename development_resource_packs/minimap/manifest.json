@@ -1,0 +1,22 @@
+{
+	"format_version": 2,
+	"header": {
+		"name": "Minimap",
+		"description": "The minimap's colours, drawn as a font, and the empty panel it sits on",
+		"uuid": "027cfb8f-ede1-4d7e-a13c-ff087a20f99b",
+		"version": [1, 0, 0],
+		"min_engine_version": [1, 26, 0]
+	},
+	"modules": [
+		{
+			"type": "resources",
+			"uuid": "e22e6300-96bf-48f2-8cde-f8b615417e2f",
+			"version": [1, 0, 0]
+		}
+	],
+	"metadata": {
+		"authors": ["Kirbycope"],
+		"license": "MIT",
+		"url": "https://github.com/kirbycope/minimap-bedrock"
+	}
+}
