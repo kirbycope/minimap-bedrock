@@ -4,7 +4,7 @@
 		"name": "Minimap",
 		"description": "The minimap's colours, drawn as a font, and the empty panel it sits on",
 		"uuid": "027cfb8f-ede1-4d7e-a13c-ff087a20f99b",
-		"version": [1, 0, 0],
+		"version": [1, 0, 2],
 		"min_engine_version": [1, 26, 0]
 	},
 	"modules": [

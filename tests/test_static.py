@@ -110,8 +110,9 @@ def test_the_cell_size_the_scripts_use_is_the_one_the_pages_were_drawn_at():
     assert page.width // 16 == declared, "palette.js and the glyph page disagree about the cell size"
 
 
-def test_the_map_stays_square_at_the_cell_size_minecraft_draws_it():
-    # a glyph is as wide as its cell plus one and a line of text is ten pixels tall, so only one cell
-    # size comes out square. The map is drawn as action bar text and cannot change either number.
+def test_the_grid_between_cells_is_even_at_the_cell_size_minecraft_draws_it():
+    # A glyph is as wide as its cell plus the one pixel Minecraft puts between characters, and a line is
+    # ten pixels tall whatever is on it. Only one cell size leaves the same gap on every side of a cell,
+    # and it is the one that makes the cell square. The map is action bar text and cannot change either.
     declared = int(re.search(r"export const CELL = (\d+)", script("palette.js")).group(1))
-    assert declared + 1 == 10, "cells would not be square: see tools/palette.py"
+    assert declared + 1 == 10, "the gap would differ between columns and rows: see tools/palette.py"

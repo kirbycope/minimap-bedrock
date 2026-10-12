@@ -43,8 +43,8 @@ If you would rather type, `/scriptevent minimap:menu` opens the same menu, and `
 North is up unless you turn that off. The letter in the top edge is which way up is, the white arrow in
 the middle is you, and it points where you are looking.
 
-Blocks keep their own colours, and each cell is shaded against the cell to the north of it, which is
-what makes hills read as hills. A red dot is a monster, white is an animal or a villager, light blue is
+The colours are Minecraft's own map colours, the ones the map in your hand is drawn with, and each cell
+is shaded against the cell to the north of it, which is what makes hills read as hills. A red dot is a monster, white is an animal or a villager, light blue is
 another player and yellow is a dropped item.
 
 Underground, the map shows the level you are standing on rather than the sky above it, and the same in
@@ -76,16 +76,21 @@ The map is action bar text, so another add-on's action bar message appears where
 take turns. The resource pack also replaces `textures/ui/hud_tip_text_background` with nothing, which
 takes the grey panel off the action bar, map or no map.
 
-## How it is drawn
+## How it is drawn, and what that costs it
 
 Bedrock gives an add-on no way to draw pixels on the screen, so the map is text. The resource pack adds
 a font page where every glyph is a solid square of colour, and the behaviour pack writes one character
 per cell into the action bar, five times a second.
 
-Minecraft draws a glyph one screen pixel per texture pixel, puts one pixel between characters and makes
-every line ten pixels tall whatever is on it. So a cell nine pixels across is the one size that comes
-out square, and that is what `tools/palette.py` draws. The four brightness steps of each colour are
-Minecraft's own map shading.
+That is also the ceiling on how good it can look. Minecraft draws a glyph one screen pixel per texture
+pixel, puts one pixel between characters and makes every line ten pixels tall whatever is on it. So a
+cell cannot be smaller than about ten pixels, and there is a one pixel line between cells that nothing
+in a pack can remove. Drawing the cells nine pixels across, as `tools/palette.py` does, is what puts
+that line evenly on all four sides and makes the cell square; a cell of ten closes the line between
+rows and leaves it down the sides only, which looks worse.
+
+A minimap mod on Java draws to the screen directly and has none of this. This is as close as an add-on
+gets: the same colours and the same shading, in cells the size of a letter.
 
 ## Development
 

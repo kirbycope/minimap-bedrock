@@ -10,7 +10,7 @@
 // for it; on a smaller screen the map starts lower and further in, and the arrows in the menu move it.
 const DEFAULTS = {
 	on: true,
-	size: 9,         // cells across
+	size: 7,         // cells across
 	zoom: 2,         // blocks per cell
 	rotate: false,   // false keeps north up and turns the arrow instead
 	entities: true,
@@ -19,7 +19,7 @@ const DEFAULTS = {
 	up: 30,          // empty lines after the map
 };
 
-export const SIZES = [7, 9, 11, 13, 15];
+export const SIZES = [5, 7, 9, 11, 13];
 export const ZOOMS = [1, 2, 4, 8];
 export const LIMITS = { right: [0, 240], up: [0, 60] };
 export const STEP = { right: 4, up: 2 };
