@@ -45,7 +45,9 @@ the middle is you, and it points where you are looking.
 
 The colours are Minecraft's own map colours, the ones the map in your hand is drawn with, and a cell is
 drawn darker when it is lower than the cell to the north of it, which is what makes hills read as
-hills. A red dot is a monster, white is an animal or a villager, light blue is
+hills. Water and lava colour the ground they lie on, so a coast reads as a coast: the game's own
+"topmost block" answers with the floor of an ocean rather than the ocean, and the map asks what is
+standing on that floor. A red dot is a monster, white is an animal or a villager, light blue is
 another player and yellow is a dropped item.
 
 Underground, the map shows the level you are standing on rather than the sky above it, and the same in

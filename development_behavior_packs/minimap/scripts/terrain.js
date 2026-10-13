@@ -50,7 +50,7 @@ export function columnAt(dimension, layer, x, z, tick) {
 	left -= 1;
 	const block = sample(dimension, x, z, layer.ceiling);
 	if (block === undefined) return known;
-	const fresh = { y: block.y, c: colourFor(block.typeId), t: tick };
+	const fresh = { y: block.y, c: colourFor(over(dimension, block) ?? block.typeId), t: tick };
 	map.set(key, fresh);
 	if (map.size > COLUMNS) {
 		for (const old of map.keys()) {
@@ -100,6 +100,24 @@ function roofed(player, feet) {
 		return over !== undefined;
 	} catch {
 		return false;
+	}
+}
+
+/**
+ * The liquid standing on a block, if there is any.
+ *
+ * getTopmostBlock answers with the highest block that is neither air nor liquid, so without this an
+ * ocean draws as its floor and a river as its bed. One more block read per column settles it: what
+ * sits directly on the ground is the water or the lava, when there is some.
+ */
+function over(dimension, block) {
+	try {
+		const above = dimension.getBlock({ x: block.x, y: block.y + 1, z: block.z });
+		const id = above === undefined ? undefined : above.typeId;
+		return id === "minecraft:water" || id === "minecraft:flowing_water"
+			|| id === "minecraft:lava" || id === "minecraft:flowing_lava" ? id : undefined;
+	} catch {
+		return undefined;
 	}
 }
 
