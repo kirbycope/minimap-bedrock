@@ -29,6 +29,11 @@ OUTPUT = os.path.join(ROOT, "minimap-bedrock.mcaddon")
 
 STAMP = (2026, 1, 1, 0, 0, 0)   # a fixed timestamp keeps the archive reproducible, so --check can compare it
 STORED = {".png", ".jpg", ".jpeg", ".ogg", ".fsb"}
+# Text is written into the archive with Unix line endings whatever the machine building it checked out.
+# Git hands a Windows working tree CRLF, so without this the archive built here and the archive built on
+# a Linux runner differ byte for byte, --check calls the committed copy stale, and the add-on ships
+# whichever endings the builder happened to have.
+TEXT = {".js", ".json", ".md", ".lang", ".txt", ".material"}
 LIMIT = 100 * 1024 * 1024       # GitHub refuses a file over 100 MB
 
 
@@ -63,7 +68,10 @@ def build() -> bytes:
                 info.external_attr = 0o666 << 16
                 info.compress_type = zipfile.ZIP_STORED if os.path.splitext(relative)[1].lower() in STORED else zipfile.ZIP_DEFLATED
                 with open(os.path.join(ROOT, pack, relative), "rb") as handle:
-                    archive.writestr(info, handle.read(), compresslevel=9)
+                    body = handle.read()
+                if os.path.splitext(relative)[1].lower() in TEXT:
+                    body = body.replace(b"\r\n", b"\n")
+                archive.writestr(info, body, compresslevel=9)
     return buffer.getvalue()
 
 
