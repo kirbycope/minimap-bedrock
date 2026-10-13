@@ -506,9 +506,31 @@ def png(image: Image.Image) -> bytes:
     return buffer.getvalue()
 
 
+
+def same(path, data):
+    """Whether the file already holds this.
+
+    PNGs are compared as images rather than as bytes, because two Pillow versions encode the same
+    pixels into different files: the repository's copy and a fresh build matched here and read as
+    stale on CI, which is a difference in the encoder, not in the picture.
+    """
+    if not os.path.exists(path):
+        return False
+    stored = open(path, "rb").read()
+    if stored == data:
+        return True
+    if not path.lower().endswith(".png"):
+        return False
+    import io
+    try:
+        with Image.open(io.BytesIO(stored)) as a, Image.open(io.BytesIO(data)) as b:
+            return a.size == b.size and a.convert("RGBA").tobytes() == b.convert("RGBA").tobytes()
+    except Exception:
+        return False
+
 def written(path: str, data: bytes, check: bool) -> bool:
     """True when the file on disk already holds this, so --check can tell and a write can be skipped."""
-    current = os.path.exists(path) and open(path, "rb").read() == data
+    current = same(path, data)
     if check or current:
         return current
     os.makedirs(os.path.dirname(path), exist_ok=True)

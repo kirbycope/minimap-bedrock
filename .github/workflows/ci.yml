@@ -20,8 +20,8 @@ jobs:
         with:
           python-version: "3.x"
 
-      - name: Install Pillow and pytest
-        run: python3 -m pip install --upgrade pillow pytest
+      - name: Install Pillow, numpy and pytest
+        run: python3 -m pip install --upgrade pillow numpy pytest
 
       - name: Run the tests
         run: python3 -m pytest tests -q

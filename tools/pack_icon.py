@@ -52,6 +52,28 @@ def icon() -> Image.Image:
     return image
 
 
+
+def same(path, data):
+    """Whether the file already holds this.
+
+    PNGs are compared as images rather than as bytes, because two Pillow versions encode the same
+    pixels into different files: the repository's copy and a fresh build matched here and read as
+    stale on CI, which is a difference in the encoder, not in the picture.
+    """
+    if not os.path.exists(path):
+        return False
+    stored = open(path, "rb").read()
+    if stored == data:
+        return True
+    if not path.lower().endswith(".png"):
+        return False
+    import io
+    try:
+        with Image.open(io.BytesIO(stored)) as a, Image.open(io.BytesIO(data)) as b:
+            return a.size == b.size and a.convert("RGBA").tobytes() == b.convert("RGBA").tobytes()
+    except Exception:
+        return False
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--check", action="store_true", help="report whether the icons are up to date")
@@ -62,7 +84,7 @@ def main() -> int:
     data = buffer.getvalue()
     stale = []
     for path in PACKS:
-        if os.path.exists(path) and open(path, "rb").read() == data:
+        if same(path, data):
             continue
         stale.append(path)
         if not args.check:
