@@ -75,6 +75,22 @@ def build() -> bytes:
     return buffer.getvalue()
 
 
+def holds(path: str, data: bytes) -> bool:
+    """Whether the archive on disk carries the same files as a fresh build.
+
+    What is compared is the contents, not the container: zlib's deflate output differs between Python
+    versions, so the committed archive and a runner's rebuild of the very same files do not match byte
+    for byte. Names, order and each file's bytes are what matter to Minecraft.
+    """
+    try:
+        with zipfile.ZipFile(path) as old, zipfile.ZipFile(io.BytesIO(data)) as new:
+            if old.namelist() != new.namelist():
+                return False
+            return all(old.read(name) == new.read(name) for name in old.namelist())
+    except Exception:
+        return False
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--check", action="store_true", help="report whether the archive is up to date")
@@ -86,7 +102,7 @@ def main() -> int:
         print(f"refusing to write {len(data)} bytes, over GitHub's 100 MB limit", file=sys.stderr)
         return 1
 
-    current = os.path.exists(args.output) and open(args.output, "rb").read() == data
+    current = os.path.exists(args.output) and holds(args.output, data)
     if args.check:
         print("up to date" if current else f"out of date: {os.path.relpath(args.output, ROOT)}")
         return 0 if current else 1
