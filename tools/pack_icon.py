@@ -44,11 +44,11 @@ def icon() -> Image.Image:
     image = Image.new("RGBA", (SIZE, SIZE), (*palette.COLOURS["border"], 255))
     for y, row in enumerate(rows):
         for x, key in enumerate(row):
-            colour = palette.shaded(palette.COLOURS[LOOKUP[key]], palette.SHADES[2 if (x + y) % 3 else 3])
+            colour = palette.shaded(palette.COLOURS[LOOKUP[key]], palette.SHADES[0 if (x + y) % 3 == 0 else 1])
             box = ((x + 1) * cell, (y + 1) * cell, (x + 2) * cell, (y + 2) * cell)
             image.paste(Image.new("RGBA", (cell, cell), colour), box[:2])
-    arrow = palette.arrow("n").resize((cell, cell), Image.NEAREST)
-    image.paste(arrow, ((GRID // 2 + 1) * cell, (GRID // 2 + 1) * cell))
+    arrow = palette.arrow("n").resize((cell * 2, cell * 2), Image.NEAREST)
+    image.paste(arrow, ((GRID // 2) * cell, (GRID // 2) * cell))
     return image
 
 

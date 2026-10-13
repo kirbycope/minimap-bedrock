@@ -95,24 +95,49 @@ def test_a_script_only_imports_modules_that_exist(name):
         assert os.path.isfile(os.path.join(SCRIPTS, module)), f"{name} imports {module}, which is missing"
 
 
-def test_the_glyph_pages_are_square_grids_of_sixteen_cells():
+def test_every_glyph_page_is_a_grid_of_sixteen_by_sixteen_whole_cells():
     from PIL import Image
-    for page in ("glyph_E1.png", "glyph_E2.png"):
+    for page in sorted(f for f in os.listdir(os.path.join(RESOURCE, "font")) if f.startswith("glyph_")):
         image = Image.open(os.path.join(RESOURCE, "font", page))
-        assert image.width == image.height, f"{page} is not square"
-        assert image.width % 16 == 0, f"{page} is not a 16 by 16 grid of whole pixels"
+        assert image.width % 16 == 0 and image.height % 16 == 0, f"{page} is not a grid of whole pixels"
 
 
-def test_the_cell_size_the_scripts_use_is_the_one_the_pages_were_drawn_at():
+def test_a_glyph_is_as_tall_as_its_cell_and_narrower_than_it():
+    # A page's cells are square, so the cell has to be as tall as a line of text and the art is narrow
+    # inside it. Minecraft takes a glyph's width from the pixels it can see, which is what makes the
+    # map's columns five across rather than eleven.
     from PIL import Image
-    declared = int(re.search(r"export const CELL = (\d+)", script("palette.js")).group(1))
-    page = Image.open(os.path.join(RESOURCE, "font", "glyph_E1.png"))
-    assert page.width // 16 == declared, "palette.js and the glyph page disagree about the cell size"
+    table = script("palette.js")
+    width = int(re.search(r"export const CELL_W = (\d+)", table).group(1))
+    height = int(re.search(r"export const CELL_H = (\d+)", table).group(1))
+    page = Image.open(os.path.join(RESOURCE, "font", "glyph_E1.png")).convert("RGBA")
+    cell = page.width // 16
+    assert page.width == page.height, "a glyph page must be square or Minecraft cuts the cells short"
+    assert cell == height, "the cell is not as tall as a line of text, which would cut the glyph short"
+    drawn = [x for x in range(cell) if page.getpixel((x, 1))[3]]
+    assert drawn == list(range(width)), f"the art is {len(drawn)} pixels across, not {width}"
+    down = "".join("#" if page.getpixel((1, y))[3] else "." for y in range(cell))
+    assert down == "####.####.", f"the two halves and the lines between them are wrong: {down}"
 
 
-def test_the_grid_between_cells_is_even_at_the_cell_size_minecraft_draws_it():
-    # A glyph is as wide as its cell plus the one pixel Minecraft puts between characters, and a line is
-    # ten pixels tall whatever is on it. Only one cell size leaves the same gap on every side of a cell,
-    # and it is the one that makes the cell square. The map is action bar text and cannot change either.
-    declared = int(re.search(r"export const CELL = (\d+)", script("palette.js")).group(1))
-    assert declared + 1 == 10, "the gap would differ between columns and rows: see tools/palette.py"
+def test_a_map_pixel_comes_out_square_at_the_sizes_the_glyphs_are_drawn():
+    # A glyph takes the width of its art plus the one pixel Minecraft puts between characters, and a
+    # line of text is ten pixels tall whatever is on it. The glyph holds two map pixels stacked, so a
+    # map pixel is CELL_W + 1 across and CELL_H / 2 down, and those have to match.
+    table = script("palette.js")
+    width = int(re.search(r"export const CELL_W = (\d+)", table).group(1))
+    height = int(re.search(r"export const CELL_H = (\d+)", table).group(1))
+    assert width + 1 == height / 2, "map pixels would not be square: see tools/palette.py"
+
+
+def test_there_is_a_glyph_page_for_every_pair_of_values():
+    table = script("palette.js")
+    values = int(re.search(r"export const VALUES = (\d+)", table).group(1))
+    pages = [name for name in os.listdir(os.path.join(RESOURCE, "font")) if name.startswith("glyph_")]
+    assert values ** 2 <= (len(pages) - 1) * 256, "a pair of values has no glyph: run tools/palette.py"
+
+
+def test_every_size_puts_the_player_on_one_line_of_text():
+    # A character is two map rows, so the four cells the player stands on have to fall on one of them.
+    for size in re.search(r"export const SIZES = \[([^\]]*)\]", script("settings.js")).group(1).split(","):
+        assert int(size) % 4 == 0, f"a map {size.strip()} across would split the player's own cells"

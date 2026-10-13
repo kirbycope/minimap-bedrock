@@ -10,7 +10,7 @@
 // for it; on a smaller screen the map starts lower and further in, and the arrows in the menu move it.
 const DEFAULTS = {
 	on: true,
-	size: 7,         // cells across
+	size: 16,        // cells across, a multiple of four so the player sits on one line of text
 	zoom: 2,         // blocks per cell
 	rotate: false,   // false keeps north up and turns the arrow instead
 	entities: true,
@@ -19,10 +19,14 @@ const DEFAULTS = {
 	up: 30,          // empty lines after the map
 };
 
-export const SIZES = [5, 7, 9, 11, 13];
+// Multiples of four, because a character holds two rows and the player's own four cells have to fall
+// on one of them. A cell is five pixels, so sixteen across is ninety pixels of screen with the frame.
+export const SIZES = [8, 12, 16, 20, 24, 32, 40];
 export const ZOOMS = [1, 2, 4, 8];
-export const LIMITS = { right: [0, 240], up: [0, 60] };
-export const STEP = { right: 4, up: 2 };
+// The smaller Minecraft draws its interface, the more of these it takes to reach a corner, so the
+// range has to cover the smallest interface size as well as the largest.
+export const LIMITS = { right: [0, 600], up: [0, 200] };
+export const STEP = { right: 8, up: 4 };
 
 const cache = new Map();   // player id -> settings
 

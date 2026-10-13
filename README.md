@@ -25,7 +25,7 @@ pressed over and over:
 | Button | What it does |
 | --- | --- |
 | Zoom in, Zoom out | 1, 2, 4 or 8 blocks to a cell |
-| Bigger, Smaller | 7, 9, 11, 13 or 15 cells across |
+| Bigger, Smaller | 8, 12, 16, 20, 24, 32 or 40 blocks across |
 | Move up, down, left, right | where on the screen the map sits |
 | Turn with me | off keeps north at the top and turns the arrow instead |
 | Mobs and players | the coloured dots |
@@ -43,8 +43,9 @@ If you would rather type, `/scriptevent minimap:menu` opens the same menu, and `
 North is up unless you turn that off. The letter in the top edge is which way up is, the white arrow in
 the middle is you, and it points where you are looking.
 
-The colours are Minecraft's own map colours, the ones the map in your hand is drawn with, and each cell
-is shaded against the cell to the north of it, which is what makes hills read as hills. A red dot is a monster, white is an animal or a villager, light blue is
+The colours are Minecraft's own map colours, the ones the map in your hand is drawn with, and a cell is
+drawn darker when it is lower than the cell to the north of it, which is what makes hills read as
+hills. A red dot is a monster, white is an animal or a villager, light blue is
 another player and yellow is a dropped item.
 
 Underground, the map shows the level you are standing on rather than the sky above it, and the same in
@@ -78,19 +79,31 @@ takes the grey panel off the action bar, map or no map.
 
 ## How it is drawn, and what that costs it
 
-Bedrock gives an add-on no way to draw pixels on the screen, so the map is text. The resource pack adds
-a font page where every glyph is a solid square of colour, and the behaviour pack writes one character
-per cell into the action bar, five times a second.
+Bedrock gives an add-on no way to draw pixels on the screen, so the map is text, written into the action
+bar five times a second from a font the resource pack brings with it.
 
-That is also the ceiling on how good it can look. Minecraft draws a glyph one screen pixel per texture
-pixel, puts one pixel between characters and makes every line ten pixels tall whatever is on it. So a
-cell cannot be smaller than about ten pixels, and there is a one pixel line between cells that nothing
-in a pack can remove. Drawing the cells nine pixels across, as `tools/palette.py` does, is what puts
-that line evenly on all four sides and makes the cell square; a cell of ten closes the line between
-rows and leaves it down the sides only, which looks worse.
+Two measurements decide everything else, and neither is a pack's to change:
 
-A minimap mod on Java draws to the screen directly and has none of this. This is as close as an add-on
-gets: the same colours and the same shading, in cells the size of a letter.
+- a line of text is ten pixels tall, whatever is written on it
+- a glyph takes the width of the pixels it actually has, plus one
+
+The ten is the floor on how fine the map can be, so one character carries **two** map pixels, stacked,
+five pixels each, and four pixels of art plus Minecraft's one makes the columns five across as well. A
+block is five screen pixels square. It is the idea behind drawing with braille dots in a terminal,
+except that the pack supplies its own font, so each half is a full colour rather than a dot that is on
+or off.
+
+The price is combinations: a glyph has to exist for every pair of values that can sit one above the
+other. Thirty-two colours in two brightness steps is 4096 glyphs, sixteen pages of the private use area,
+which `tools/palette.py` draws. That is why the palette is thirty-two colours and the shading is two
+steps rather than Minecraft's four.
+
+What is left is the one pixel between characters, which no pack can remove. The glyphs leave a matching
+pixel under each half so the grid over the map is even on all four sides rather than stripes down the
+sides only.
+
+A minimap mod on Java draws to the screen directly and has none of this: Xaero's can colour a block from
+its own texture, at one screen pixel a block or finer. Five pixels a block is where an add-on stops.
 
 ## Development
 
@@ -104,8 +117,8 @@ python tools/build_addon.py  # minimap-bedrock.mcaddon
 ```
 
 `tools/palette.py` is the only place a colour is written down. It holds the colour of every block the
-map knows, the rules it guesses the rest by, and the pixel size of a cell, and it writes both the glyph
-pages and the colour table the scripts read.
+map knows, the rules it guesses the rest by, and the pixel sizes above, and it writes both the seventeen
+glyph pages and the colour table the scripts read.
 
 To see the map while working on it, point a Bedrock Dedicated Server at a world with both packs
 junctioned into it, or copy them into the client's own `development_*_packs` folders. Changing a script
