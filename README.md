@@ -65,13 +65,19 @@ there is. Spaces in front of each line push the map right, empty lines after it 
 the move buttons change those two numbers. It is why the position is a setting rather than a corner
 you pick.
 
-## What it costs
+## What it costs, and how far it can see
 
-A pass over every player's map takes 1 to 2 ms on a dedicated server, and a pass runs every four ticks.
-The map does not re-read the world each time: a column of blocks is remembered until someone builds
-there or twenty seconds pass, and only sixty-four columns are read per pass, so a map fills in over
-about half a second when you arrive somewhere new. `/scriptevent minimap:perf` prints the last and
+A pass over every player's map takes about 1 ms at the size it starts at, and up to about 15 ms on the
+largest map there is; a pass runs every four ticks. The map does not re-read the world each time: a
+column of blocks is remembered until someone builds there or twenty seconds pass, and each pass reads
+only enough columns to fill the biggest map on screen in about ten of them, so a map fills in over
+roughly half a second when you arrive somewhere new. `/scriptevent minimap:perf` prints the last and
 worst pass.
+
+The map can only show ground the game is holding in memory, which is the chunks near you, and while you
+are moving the ground ahead has not arrived yet. So Bigger and Zoom out stop once the map would look
+more than 48 blocks out, and say so on the button. Past that the extra map is black however long you
+wait, which is what a 40 cell map at 8 blocks a cell used to be.
 
 ## What else it touches
 

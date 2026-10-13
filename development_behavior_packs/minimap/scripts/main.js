@@ -15,6 +15,7 @@ const CALIBRATE_FOR = 600;  // ticks the font ruler stays up when it is asked fo
 const QUIET = 200;          // ticks of silence after a complaint, so one broken frame is not a wall of log
 
 const calibrating = new Map();   // player id -> the tick the ruler comes down
+const drawn = new Map();         // player id -> the last map that drew, so one bad pass is not a blank screen
 let complained = -QUIET;
 let spent = 0;      // milliseconds the last pass took, for minimap:perf
 let worst = 0;
@@ -22,16 +23,31 @@ let worst = 0;
 system.runInterval(() => {
 	const started = Date.now();
 	const tick = system.currentTick;
-	beginPass();
-	for (const player of world.getAllPlayers()) {
+	const players = world.getAllPlayers();
+	let widest = 0;
+	for (const player of players) {
+		const settings = settingsOf(player);
+		if (settings.on) widest = Math.max(widest, settings.size * settings.size);
+	}
+	beginPass(widest);
+	for (const player of players) {
 		try {
 			const settings = settingsOf(player);
 			if (!settings.on) continue;
 			const until = calibrating.get(player.id);
 			if (until !== undefined && tick > until) calibrating.delete(player.id);
 			const text = until !== undefined && tick <= until ? calibration() : draw(player, settings, tick);
+			drawn.set(player.id, text);
 			player.onScreenDisplay.setActionBar(text);
 		} catch (error) {
+			// the map is a picture of a moment, so the moment before it is a better answer than a
+			// screen with no map on it at all
+			const last = drawn.get(player.id);
+			if (last !== undefined) {
+				try {
+					player.onScreenDisplay.setActionBar(last);
+				} catch { /* the player is on their way out of the world */ }
+			}
 			if (tick - complained >= QUIET) {
 				complained = tick;
 				console.warn(`[minimap] ${error}`);
@@ -78,6 +94,7 @@ world.afterEvents.itemUse.subscribe((event) => {
 world.afterEvents.playerLeave.subscribe((event) => {
 	forget(event.playerId);
 	calibrating.delete(event.playerId);
+	drawn.delete(event.playerId);
 });
 
 function run(player, command, message) {

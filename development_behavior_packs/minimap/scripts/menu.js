@@ -5,17 +5,29 @@
 // again, so the next press is one tap away and the labels always show where the settings now stand.
 
 import { ActionFormData } from "@minecraft/server-ui";
-import { SIZES, ZOOMS, nudge, save, settingsOf, step } from "./settings.js";
+import { SIZES, ZOOMS, fits, nudge, save, settingsOf, step } from "./settings.js";
 
 const CLOSE = -1;
+
+/** Says when a button has nothing left to give, so a press that does nothing is not a mystery. */
+function capped(settings, key) {
+	const list = key === "size" ? SIZES : ZOOMS;
+	const at = list.indexOf(settings[key]);
+	if (at === list.length - 1) return " - the largest";
+	const next = list[at + 1];
+	const size = key === "size" ? next : settings.size;
+	const zoom = key === "zoom" ? next : settings.zoom;
+	return fits(size, zoom) ? "" : " - as far as the chunks go";
+}
 
 /** Opens the menu, does what the pressed button says, and opens it again. */
 export function openMenu(player) {
 	const settings = settingsOf(player);
 	const buttons = [
 		[`Zoom in${settings.zoom === ZOOMS[0] ? " (at the closest)" : ""}`, () => step(player, "zoom", -1)],
-		[`Zoom out (${settings.zoom} block${settings.zoom === 1 ? "" : "s"} a cell)`, () => step(player, "zoom", 1)],
-		[`Bigger (${settings.size} x ${settings.size})`, () => step(player, "size", 1)],
+		[`Zoom out (${settings.zoom} block${settings.zoom === 1 ? "" : "s"} a cell)${capped(settings, "zoom")}`,
+			() => step(player, "zoom", 1)],
+		[`Bigger (${settings.size} x ${settings.size})${capped(settings, "size")}`, () => step(player, "size", 1)],
 		["Smaller", () => step(player, "size", -1)],
 		["Move up", () => nudge(player, "up", 1)],
 		["Move down", () => nudge(player, "up", -1)],

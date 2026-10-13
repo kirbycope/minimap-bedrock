@@ -25,6 +25,12 @@ export const SIZES = [8, 12, 16, 20, 24, 32, 40];
 export const ZOOMS = [1, 2, 4, 8];
 // The smaller Minecraft draws its interface, the more of these it takes to reach a corner, so the
 // range has to cover the smallest interface size as well as the largest.
+// How far from the player the map may ask about, in blocks. The game only answers for chunks near the
+// player, and while you are moving the ground ahead has not arrived yet, so a map that reaches further
+// than this draws black however long you wait. Size times zoom is what reaches: a map of 24 cells at 4
+// blocks a cell looks 48 blocks out. The menu stops at the combinations that fit.
+export const REACH = 48;
+
 export const LIMITS = { right: [0, 600], up: [0, 200] };
 export const STEP = { right: 8, up: 4 };
 
@@ -39,23 +45,44 @@ export function settingsOf(player) {
 		const stored = player.getDynamicProperty(`minimap:${key}`);
 		if (stored !== undefined) settings[key] = stored;
 	}
-	settings.size = nearest(SIZES, settings.size);
-	settings.zoom = nearest(ZOOMS, settings.zoom);
-	settings.right = clamped("right", settings.right);
-	settings.up = clamped("up", settings.up);
-	cache.set(player.id, settings);
+	cache.set(player.id, checked(settings));
 	return settings;
 }
 
-/** Writes the changed settings back to the player and to the cache. */
+/**
+ * Writes the changed settings back to the player and to the cache.
+ *
+ * Everything is put through the same checks as a setting read off the player, because a size that is
+ * not one of SIZES would land the player's own cells across two lines of text and the map would throw
+ * rather than draw. /scriptevent minimap:set takes whatever is typed, so this is where that is caught.
+ */
 export function save(player, changes) {
-	const settings = { ...settingsOf(player), ...changes };
+	const settings = checked({ ...settingsOf(player), ...changes });
+	cache.set(player.id, settings);
+	for (const key of Object.keys(changes)) {
+		player.setDynamicProperty(`minimap:${key}`, settings[key]);
+	}
+	return settings;
+}
+
+/** Whether a map that size at that zoom stays inside the ground the game will answer for. */
+export function fits(size, zoom) {
+	return (size / 2) * zoom <= REACH;
+}
+
+/** A settings object with every number brought back to one the renderer can draw. */
+function checked(settings) {
+	settings.size = nearest(SIZES, settings.size);
+	settings.zoom = nearest(ZOOMS, settings.zoom);
+	while (!fits(settings.size, settings.zoom) && settings.zoom > ZOOMS[0]) {
+		settings.zoom = ZOOMS[ZOOMS.indexOf(settings.zoom) - 1];
+	}
+	while (!fits(settings.size, settings.zoom) && settings.size > SIZES[0]) {
+		settings.size = SIZES[SIZES.indexOf(settings.size) - 1];
+	}
 	settings.right = clamped("right", settings.right);
 	settings.up = clamped("up", settings.up);
-	cache.set(player.id, settings);
-	for (const [key, value] of Object.entries(changes)) {
-		player.setDynamicProperty(`minimap:${key}`, key in LIMITS ? clamped(key, value) : value);
-	}
+	for (const key of ["on", "rotate", "entities", "coords"]) settings[key] = Boolean(settings[key]);
 	return settings;
 }
 
@@ -66,9 +93,14 @@ export function nudge(player, key, steps) {
 
 /** The next size or zoom up or down its list, stopping at the ends. */
 export function step(player, key, direction) {
+	const settings = settingsOf(player);
 	const list = key === "size" ? SIZES : ZOOMS;
-	const at = list.indexOf(settingsOf(player)[key]);
-	return save(player, { [key]: list[Math.min(list.length - 1, Math.max(0, at + direction))] });
+	const at = list.indexOf(settings[key]);
+	const next = list[Math.min(list.length - 1, Math.max(0, at + direction))];
+	const other = key === "size" ? settings.zoom : settings.size;
+	// growing past what the game will answer for would only add black, so the button stops there
+	if (direction > 0 && !fits(key === "size" ? next : other, key === "zoom" ? next : other)) return settings;
+	return save(player, { [key]: next });
 }
 
 export function forget(playerId) {
