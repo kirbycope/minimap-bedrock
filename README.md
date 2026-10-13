@@ -122,6 +122,7 @@ python tools/palette.py      # font/glyph_E1.png, font/glyph_E2.png, scripts/pal
 python tools/pack_icon.py    # both pack_icon.png files
 python -m pytest tests       # checks the manifests, the generated files and the imports
 python tools/build_addon.py  # minimap-bedrock.mcaddon
+python tools/make_thumbnail.py  # assets/thumbnail.png and the repository preview
 ```
 
 `tools/palette.py` is the only place a colour is written down. It holds the colour of every block the
@@ -136,7 +137,29 @@ pack's version bumped, because the client caches a pack by its id and version.
 `/scriptevent minimap:calibrate` puts a ruler of glyphs on screen, which is how the numbers above were
 measured and how to measure them again if Minecraft's font ever changes.
 
+### The thumbnail
+
+`python tools/make_thumbnail.py` rebuilds the picture at the top of this file. It needs nothing but what
+is committed: a capture of the map on screen in `assets/background.png`, the player skin in
+`assets/skin.png` and Passion One in `tools/fonts/`. It writes the 1920x1080 master to
+`assets/thumbnail.png` and hands that to `tools/make_preview.py`, which writes the 960x540
+`minimap-bedrock.png` the README and the portfolio site use.
+
+The minimap is lifted out of the capture by `MINIMAP_BOX` and blown up with nearest-neighbour, because
+at its real size it is unreadable in a thumbnail. `_patch_out()` mirrors the strip beside it over the
+original first, so no sliver of the small one shows past the blown-up copy's edge. Re-run the tool after
+anything that changes how the map looks, and take a fresh capture first.
+
+| | |
+| --- | --- |
+| `tools/make_thumbnail.py` | Builds `assets/thumbnail.png` and the 960x540 repository preview |
+| `tools/skin_render.py` | Renders the posed player from `assets/skin.png` |
+| `tools/make_preview.py` | Resizes a 16:9 screenshot to the 960x540 preview |
+| `tools/tinyify.py` | Compresses PNGs losslessly, in place |
+| `tools/bridge.py`, `tools/client_drive.py` | Run commands on the server and drive the real client |
+
 ## Licence
 
-MIT. Nothing in here comes from anywhere else: the glyphs, the arrows and the icon are all drawn by
-`tools/`.
+MIT. Nothing shipped inside the `.mcaddon` comes from anywhere else: the glyphs, the arrows and the icon
+are all drawn by `tools/`. The thumbnail is set in Passion One, under the SIL Open Font License, which is
+in the repository but not in either pack. See [CREDITS.md](CREDITS.md).

@@ -141,3 +141,53 @@ def test_every_size_puts_the_player_on_one_line_of_text():
     # A character is two map rows, so the four cells the player stands on have to fall on one of them.
     for size in re.search(r"export const SIZES = \[([^\]]*)\]", script("settings.js")).group(1).split(","):
         assert int(size) % 4 == 0, f"a map {size.strip()} across would split the player's own cells"
+
+
+# --- the project art -------------------------------------------------------
+#
+# The thumbnail is not part of either pack, so these only check that it can be
+# rebuilt from what is committed and that it came out at the sizes the README
+# and the portfolio site expect.
+
+ASSETS = os.path.join(ROOT, "assets")
+
+
+def test_everything_the_thumbnail_is_built_from_is_committed():
+    for name in ("background.png", "skin.png"):
+        assert os.path.isfile(os.path.join(ASSETS, name)), \
+            f"assets/{name} is missing, so the thumbnail cannot be rebuilt"
+    assert os.path.isfile(os.path.join(ROOT, "tools", "fonts", "PassionOne-Black.ttf")), \
+        "the title font is missing"
+
+
+def test_the_skin_is_a_64x64_classic_model():
+    from PIL import Image
+    with Image.open(os.path.join(ASSETS, "skin.png")) as skin:
+        assert skin.size == (64, 64)
+        # tools/skin_render.py unwraps the 4px-arm layout, not the slim one
+        arm = skin.convert("RGBA").crop((47, 20, 48, 32))
+        assert max(p[3] for p in arm.getdata()) > 0, "skin_render.py expects the classic 4px arm"
+
+
+def test_the_master_is_1920x1080():
+    from PIL import Image
+    with Image.open(os.path.join(ASSETS, "thumbnail.png")) as image:
+        assert image.size == (1920, 1080)
+
+
+def test_the_preview_is_the_size_the_readme_embeds():
+    from PIL import Image
+    with Image.open(os.path.join(ROOT, "minimap-bedrock.png")) as image:
+        assert image.size == (960, 540)
+
+
+def test_the_minimap_box_is_inside_the_capture():
+    from PIL import Image
+    sys.path.insert(0, os.path.join(ROOT, "tools"))
+    import make_thumbnail
+    with Image.open(os.path.join(ASSETS, "background.png")) as plate:
+        left, top, right, bottom = make_thumbnail.MINIMAP_BOX
+        assert 0 <= left < right <= plate.width, "MINIMAP_BOX runs off the capture"
+        assert 0 <= top < bottom <= plate.height, "MINIMAP_BOX runs off the capture"
+        assert make_thumbnail.PLATE_CROP[2] <= plate.width
+        assert make_thumbnail.PLATE_CROP[3] <= plate.height
