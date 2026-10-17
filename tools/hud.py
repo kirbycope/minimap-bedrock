@@ -24,9 +24,13 @@ keeps the first N bytes, and taking one prefix away from a longer one leaves the
     header      mm:maph, then
                     S             which of SIZES the map is, or "-" for no map
                     A             which of the eight arrows the player is
-                    L             which compass letter sits in the top edge
-                    C             "y" when the coordinates are shown
-                    coordinates   COORDS bytes, padded on the left
+                    LLLL          which compass letter sits in the top, right, bottom and left edges
+                    VVVVV         for each of the INFO lines below, S again when the line is on and "-"
+                                  when it is not, so a line's label needs one comparison, like the arrow's
+                                  (JSON UI did not honour "and" over two slices)
+                    info          INFO lines of INFO_WIDTH bytes, shown under the map in order (render.js
+                                  fills them with whichever of the coordinates, camera angle, biome, light
+                                  and time are on)
     row chunk   mm:maprNN (NN the chunk, two digits), then up to CHUNK rows of the map with its frame,
                 top first, each COLUMNS cells of two hex digits, the right-hand cell first, so the map
                 grows out of the corner it is anchored to. A cell past the map's edge is "zz", a
@@ -49,7 +53,10 @@ LAYOUT = os.path.join(ROOT, "development_behavior_packs", "minimap", "scripts", 
 MARKER = "mm:map"
 SIZES = [8, 12, 16, 20, 24, 32, 40]   # cells across, inside the frame
 COLUMNS = max(SIZES) + 2              # cells in a row of the title, frame included
-COORDS = 28                           # bytes of the coordinates field
+INFO = 5                              # lines of text under the map, as Xaero's minimap shows
+INFO_WIDTH = 28                       # bytes of each
+INFO_FONT = 0.5                       # of the game's font, which is as tall as a 36 unit map at full size
+INFO_LINE = 5                         # GUI units a line takes
 CELL = 2                              # GUI units a cell is across; a whole number keeps every cell the same size
 MARGIN = 4                            # GUI units from the top right corner of the screen
 ARROW = 6                             # GUI units across the player's arrow
@@ -62,10 +69,10 @@ CHUNK = 5                             # map rows in one title: 9 + 5 * 84 bytes,
 CHUNKS = -(-COLUMNS // CHUNK)
 FIELD_SIZE = len(HEAD_MARKER)
 FIELD_ARROW = FIELD_SIZE + 1
-FIELD_LETTER = FIELD_ARROW + 1
-FIELD_COORDS_ON = FIELD_LETTER + 1
-FIELD_COORDS = FIELD_COORDS_ON + 1
-HEADER = FIELD_COORDS + COORDS
+FIELD_LETTER = FIELD_ARROW + 1          # four of them: top, right, bottom, left
+FIELD_SHOWN = FIELD_LETTER + 4
+FIELD_INFO = FIELD_SHOWN + INFO
+HEADER = FIELD_INFO + INFO * INFO_WIDTH
 ROW = COLUMNS * 2
 
 
@@ -152,7 +159,7 @@ def cell_control(row: int, column: int) -> dict:
 
 
 def marker_controls(size: int) -> list[dict]:
-    """The arrow in the middle, the letter in the top edge and the coordinates under the map, at this size."""
+    """The arrow in the middle, a compass letter in each edge and the lines of text under the map, at this size."""
     span = (size + 2) * CELL
     middle = span / 2
     return [
@@ -169,34 +176,40 @@ def marker_controls(size: int) -> list[dict]:
                 from_data(showing(size), "#visible"),
             ],
         }},
-        {f"minimap_letter_{size}": {
+    ] + [
+        {f"minimap_letter_{size}_{edge}": {
             "type": "image",
             "size": [LETTER, LETTER],
             "anchor_from": "top_right",
             "anchor_to": "top_right",
-            "offset": [-(middle - LETTER / 2), CELL / 2 - LETTER / 2],
+            "offset": [-(at_x - LETTER / 2), at_y - LETTER / 2],
             "layer": 2,
-            "texture": f"{TEXTURES}letter0",
+            "texture": f"{TEXTURES}letter{edge}",
             "bindings": [
-                from_data(f"('{TEXTURES}letter' + {field(FIELD_LETTER, 1)})", "#texture"),
+                from_data(f"('{TEXTURES}letter' + {field(FIELD_LETTER + edge, 1)})", "#texture"),
                 from_data(showing(size), "#visible"),
             ],
-        }},
-        {f"minimap_coords_{size}": {
+        }}
+        # the middle of each edge of the frame, top, right, bottom, left, measured from the top right corner
+        for edge, (at_x, at_y) in enumerate([(middle, CELL / 2), (CELL / 2, middle), (middle, span - CELL / 2), (span - CELL / 2, middle)])
+    ] + [
+        {f"minimap_info_{size}_{line}": {
             "type": "label",
-            "size": [120, 10],
+            "size": [160, INFO_LINE],
             "anchor_from": "top_right",
             "anchor_to": "top_right",
-            "offset": [0, span + 2],
+            "offset": [0, span + 1 + line * INFO_LINE],
+            "font_scale_factor": INFO_FONT,
             "layer": 2,
             "shadow": True,
             "text_alignment": "right",
-            "text": "#value",
+            "text": "#text",
             "bindings": [
-                from_data(field(FIELD_COORDS, COORDS), "#value"),
-                from_data(f"({showing(size)} and ({field(FIELD_COORDS_ON, 1)} = 'y'))", "#visible"),
+                from_data(field(FIELD_INFO + line * INFO_WIDTH, INFO_WIDTH), "#text"),
+                from_data(f"({field(FIELD_SHOWN + line, 1)} = {SIZES.index(size)})", "#visible"),
             ],
-        }},
+        }}
+        for line in range(INFO)
     ]
 
 
@@ -231,7 +244,7 @@ def hud() -> dict:
             "size": ["100%", "100%"],
             "controls": [{"minimap_map": {
                 "type": "panel",
-                "size": [COLUMNS * CELL, COLUMNS * CELL + 12],
+                "size": [COLUMNS * CELL, COLUMNS * CELL + 2 + INFO * INFO_LINE],
                 "anchor_from": "top_right",
                 "anchor_to": "top_right",
                 "offset": [-MARGIN, MARGIN],
@@ -251,7 +264,8 @@ def layout_js() -> str:
         f'export const MARKER = "{MARKER}";',
         f"export const SIZES = {json.dumps(SIZES)};",
         f"export const COLUMNS = {COLUMNS};",
-        f"export const COORDS = {COORDS};",
+        f"export const INFO = {INFO};",
+        f"export const INFO_WIDTH = {INFO_WIDTH};",
         f'export const HEAD_MARKER = "{HEAD_MARKER}";',
         f"export const CHUNK = {CHUNK};",
         f"export const CHUNKS = {CHUNKS};",

@@ -114,11 +114,15 @@ def test_the_hud_and_the_title_layout_match_the_tool_that_writes_them():
 
 
 def numeric(value):
-    return int(value) if isinstance(value, str) and value.isdigit() else value
+    """JSON UI's reading of a slice: one that starts with a number, after any spaces, is that number."""
+    if not isinstance(value, str):
+        return value
+    number = re.match(r"\s*(-?\d+)", value)
+    return int(number.group(1)) if number else value
 
 
 def evaluate(expression, properties):
-    tokens = re.findall(r"'[^']*'|#\w+|\b\d+\b|\(|\)|\*|-|\+|=|\bnot\b|\band\b|\bor\b", expression)
+    tokens = re.findall(r"'[^']*'|#\w+|\b\d+\b|\(|\)|\*|-|\+|=|>|\bnot\b|\band\b|\bor\b", expression)
     position = 0
 
     def peek():
@@ -143,7 +147,7 @@ def evaluate(expression, properties):
             return int(token)
         return properties[token]
 
-    levels = {"or": 1, "and": 2, "=": 3, "+": 4, "-": 4, "*": 5}
+    levels = {"or": 1, "and": 2, "=": 3, ">": 3, "+": 4, "-": 4, "*": 5}
 
     def binary(floor):
         left = primary()
@@ -159,6 +163,9 @@ def evaluate(expression, properties):
                 left = str(left) + str(right)
             elif operator == "=":
                 left = left == right
+            elif operator == ">":
+                # only between numbers; a slice that did not come out a number compares as false
+                left = isinstance(left, int) and isinstance(right, int) and left > right
             elif operator == "and":
                 left = left and right
             else:
@@ -201,7 +208,7 @@ def layout():
     number = lambda name: int(re.search(rf"export const {name} = (\d+)", table).group(1))
     text = lambda name: re.search(rf'export const {name} = "([^"]*)"', table).group(1)
     sizes = [int(s) for s in re.search(r"export const SIZES = \[([^\]]*)\]", table).group(1).split(",")]
-    return text("MARKER"), sizes, number("COLUMNS"), number("COORDS"), text("NO_CELL")
+    return text("MARKER"), sizes, number("COLUMNS"), (number("INFO"), number("INFO_WIDTH")), text("NO_CELL")
 
 
 def layout_extra():
@@ -216,7 +223,7 @@ def code(value):
 
 
 def test_every_cell_of_the_hud_shows_the_value_the_title_gives_it():
-    marker, sizes, columns, coords, none = layout()
+    marker, sizes, columns, info, none = layout()
     size = sizes[2]
     span = size + 2
     grid = [[(row * 7 + column * 3) % 64 for column in range(span)] for row in range(span)]
@@ -224,7 +231,10 @@ def test_every_cell_of_the_hud_shows_the_value_the_title_gives_it():
     grid[1] = [5] * span
     head_marker, chunk = layout_extra()
     rows = ["".join(code(row[span - 1 - cell]) if cell < span else none for cell in range(columns)) for row in grid]
-    titles = [head_marker + str(sizes.index(size)) + "5" + "2" + "y" + "12, 64, -3".rjust(coords)]
+    lines, width = info
+    # two lines on, the rest blank, which the HUD must not show
+    text = ["XYZ: 12, 64, -3", "Plains", "", "", ""]
+    titles = [head_marker + str(sizes.index(size)) + "5" + "2301" + str(sizes.index(size)) * 2 + "---" + "".join(line.rjust(width) for line in text)]
     titles += [f"{marker}r{n:02d}" + "".join(rows[n * chunk:n * chunk + chunk]) for n in range(-(-columns // chunk))]
     state = drawn(titles)
     for row in range(columns):
@@ -237,15 +247,18 @@ def test_every_cell_of_the_hud_shows_the_value_the_title_gives_it():
     for each in sizes:
         shown = each == size
         assert state[f"minimap_arrow_{each}"]["#visible"] == shown
-        assert state[f"minimap_letter_{each}"]["#visible"] == shown
-        assert state[f"minimap_coords_{each}"]["#visible"] == shown
+        for edge in range(4):
+            assert state[f"minimap_letter_{each}_{edge}"]["#visible"] == shown
+        for line in range(lines):
+            assert state[f"minimap_info_{each}_{line}"]["#visible"] == (shown and text[line] != ""), (each, line)
     assert state[f"minimap_arrow_{size}"]["#texture"] == "textures/ui/minimap/arrow5"
-    assert state[f"minimap_letter_{size}"]["#texture"] == "textures/ui/minimap/letter2"
-    assert state[f"minimap_coords_{size}"]["#value"].strip() == "12, 64, -3"
+    assert [state[f"minimap_letter_{size}_{edge}"]["#texture"] for edge in range(4)] == \
+        [f"textures/ui/minimap/letter{n}" for n in (2, 3, 0, 1)]
+    assert [state[f"minimap_info_{size}_{line}"]["#text"].strip() for line in (0, 1)] == ["XYZ: 12, 64, -3", "Plains"]
 
 
 def test_every_texture_the_hud_can_name_is_in_the_pack():
-    marker, sizes, columns, coords, none = layout()
+    marker, sizes, columns, info, none = layout()
     folder = os.path.join(RESOURCE, "textures", "ui", "minimap")
     values = int(re.search(r"export const VALUES = (\d+)", script("palette.js")).group(1))
     arrows = int(re.search(r"export const ARROWS = (\d+)", script("palette.js")).group(1))
@@ -259,7 +272,7 @@ def test_the_script_writes_a_title_the_hud_reads():
     node = shutil.which("node")
     if node is None:
         pytest.skip("node is not installed")
-    marker, sizes, columns, coords, none = layout()
+    marker, sizes, columns, info, none = layout()
     with tempfile.TemporaryDirectory() as folder:
         for name in ("render.js", "palette.js", "hud_layout.js"):
             shutil.copy(os.path.join(SCRIPTS, name), folder)
@@ -268,12 +281,22 @@ def test_the_script_writes_a_title_the_hud_reads():
         with open(os.path.join(folder, "terrain.js"), "w") as handle:
             handle.write("export function layerFor() { return 0; }\n"
                          "export function columnAt(d, l, x, z) { return { c: x > 0 ? 2 : 12, y: 64 }; }\n")
+        # and @minecraft/server only has to tell the time
+        server = os.path.join(folder, "node_modules", "@minecraft", "server")
+        os.makedirs(server)
+        with open(os.path.join(server, "package.json"), "w") as handle:
+            handle.write('{"name": "@minecraft/server", "type": "module", "main": "index.js"}\n')
+        with open(os.path.join(server, "index.js"), "w") as handle:
+            handle.write("export const world = { getTimeOfDay: () => 7500, getDay: () => 3 };\n")
         with open(os.path.join(folder, "run.mjs"), "w") as handle:
             handle.write("import { draw } from './render.js';\n"
-                         "const player = { id: 1, location: { x: 0.5, y: 64, z: 0.5 }, dimension: {},"
+                         "const dimension = { getBiome: () => ({ id: 'minecraft:dark_forest' }),"
+                         " getLightLevel: () => 7, getSkyLightLevel: () => 15 };\n"
+                         "const player = { id: 1, location: { x: 0.5, y: 64, z: 0.5 }, dimension,"
                          " getRotation: () => ({ x: 0, y: 90 }) };\n"
                          "process.stdout.write(JSON.stringify(draw(player, { size: 16, zoom: 1, rotate: false,"
-                         " entities: false, coords: true }, 0)));\n")
+                         " entities: false, coords: true, angle: true, biome: true, light: true, time: true },"
+                         " 0)));\n")
         with open(os.path.join(folder, "package.json"), "w") as handle:
             handle.write('{"type": "module"}\n')   # so an older node reads the scripts as modules too
         titles = json.loads(subprocess.run([node, os.path.join(folder, "run.mjs")], capture_output=True,
@@ -292,7 +315,8 @@ def test_the_script_writes_a_title_the_hud_reads():
     assert state[f"minimap_arrow_{size}"]["#visible"]
     # facing west with north up, so the arrow is the seventh of eight, counting clockwise from north
     assert state[f"minimap_arrow_{size}"]["#texture"] == "textures/ui/minimap/arrow6"
-    assert state[f"minimap_coords_{size}"]["#value"].strip() == "0, 64, 0"
+    assert [state[f"minimap_info_{size}_{line}"]["#text"].strip() for line in range(5)] == \
+        ["XYZ: 0, 64, 0", "W 90.0 / 0.0", "Dark Forest", "Light: 7 (sky 15)", "Day 3, 13:30"]
 
 
 # --- the project art -------------------------------------------------------

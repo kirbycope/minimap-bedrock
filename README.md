@@ -28,26 +28,29 @@ pressed over and over:
 | Bigger, Smaller | 8, 12, 16, 20, 24, 32 or 40 blocks across |
 | Turn with me | off keeps north at the top and turns the arrow instead |
 | Mobs and players | the coloured dots |
-| Coordinates | a line of numbers above the map |
+| Shape | square, or round as Xaero's minimap draws it |
+| Coordinates, Facing, Biome, Light level, Time of day | the lines of text under the map, each on or off |
 | Hide the map | turns it off; the compass still opens this menu |
 
 Everything is per player and is remembered between sessions.
 
 If you would rather type, `/scriptevent minimap:menu` opens the same menu, and `minimap:on`,
 `minimap:off`, `minimap:toggle` and `minimap:set <setting> <value>` do what they say. The settings are
-`size`, `zoom`, `rotate`, `entities` and `coords`.
+`size`, `zoom`, `shape` (`square` or `circle`), `rotate`, `entities`, and the lines under the map:
+`coords`, `angle`, `biome`, `light` and `time`, each `true` or `false`.
 
 ### What the map shows
 
-North is up unless you turn that off. The letter in the top edge is which way up is, the white arrow in
-the middle is you, and it points where you are looking.
+North is up unless you turn that off. N, E, S and W sit in the edges of the frame, and the red arrow in
+the middle is you, pointing where you are looking.
 
 The colours are Minecraft's own map colours, the ones the map in your hand is drawn with, and a cell is
 drawn darker when it is lower than the cell to the north of it, which is what makes hills read as
 hills. Water and lava colour the ground they lie on, so a coast reads as a coast: the game's own
 "topmost block" answers with the floor of an ocean rather than the ocean, and the map asks what is
 standing on that floor. A red dot is a monster, white is an animal or a villager, light blue is
-another player and yellow is a dropped item. The coordinates, when they are on, go under the map.
+another player and yellow is a dropped item. Under the map go whichever lines are on, in this order: your block coordinates, the way you face with
+the camera's yaw and pitch, the biome, the block and sky light where you stand, and the day and the hour.
 
 Underground, the map shows the level you are standing on rather than the sky above it, and the same in
 the Nether. Standing under a tree counts as being under a roof, so a forest shows its floor rather
@@ -90,13 +93,16 @@ An add-on cannot draw on the screen, but a resource pack can add controls to the
 can read the title text. So `ui/hud_screen.json` is a grid of image controls, one per map cell, 42 by 42
 for the largest map and its frame. The script writes the map as a title, two hex digits a cell, and each
 control cuts its two characters out of the title and shows the texture they name:
-`textures/ui/minimap/c00.png` to `c3f.png`, one per colour and brightness step.
+`textures/ui/minimap/caa.png` to `cdp.png`, one per colour and brightness step, the value's two hex
+digits written a to p. Letters rather than digits, because JSON UI reads a slice that starts with a
+number as that number, so `03` would come out as 3 and name no texture.
 
 JSON UI can only cut a string at a byte count it is given (`'%.Ns'` keeps the first N bytes, and taking
-a shorter prefix away from a longer one leaves the bytes between), so the title is fixed width: a header
-with the size, the arrow, the compass letter and the coordinates, then each row of the map, 42 cells
-wide whatever the map's size, the right-hand cell first so the map grows out of its corner. A row control
-cuts its row out of the title once, and its cells cut from that, so no cell works on the whole title.
+a shorter prefix away from a longer one leaves the bytes between), so the titles are fixed width. The game refuses a title over 512 characters, so a map is ten of them,
+sent one a tick and only when they changed: a header with the size, the arrow, the four compass letters
+and the lines of text, then nine chunks of five rows each, 42 cells wide whatever the map's size, the
+right-hand cell first so the map grows out of its corner. A row control cuts its row out of its chunk
+once, and its cells cut from that, so no cell works on a whole title.
 The HUD keeps the last map title until the next one (the "preserved title" pattern cobblemon-bedrock's
 party uses), which is why the script only sends one when the map changed.
 
@@ -105,8 +111,10 @@ real pixels, two interface units across, with no gap between cells; the map sits
 where the action bar puts it; and the palette is no longer held to 64 values by needing a glyph for every
 pair of them, since two hex digits can name 256.
 
-The arrow and the compass letter are images of their own over the cells. A control's position cannot be
-bound, so there is one of each for every map size and the title says which to show.
+The arrow, the compass letters and the lines of text are controls of their own over the cells. A
+control's position cannot be bound, so there is a set for every map size and the header says which to
+show. Each line carries its own flag in the header, the size again when it is on, because JSON UI did
+not honour `and` between two slices; one comparison per control is what works.
 
 ## Development
 

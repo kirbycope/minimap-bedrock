@@ -9,6 +9,8 @@ import { SIZES } from "./hud_layout.js";
 import { ZOOMS, fits, save, settingsOf, step } from "./settings.js";
 
 const CLOSE = -1;
+// the lines under the map, in settings.js's LINES order
+const LABELS = { coords: "Coordinates", angle: "Facing", biome: "Biome", light: "Light level", time: "Time of day" };
 
 /** Says when a button has nothing left to give, so a press that does nothing is not a mystery. */
 function capped(settings, key) {
@@ -30,9 +32,11 @@ export function openMenu(player) {
 			() => step(player, "zoom", 1)],
 		[`Bigger (${settings.size} x ${settings.size})${capped(settings, "size")}`, () => step(player, "size", 1)],
 		["Smaller", () => step(player, "size", -1)],
+		[`Shape: ${settings.shape}`, () => save(player, { shape: settings.shape === "square" ? "circle" : "square" })],
 		[`Turn with me: ${settings.rotate ? "on" : "off"}`, () => save(player, { rotate: !settings.rotate })],
 		[`Mobs and players: ${settings.entities ? "on" : "off"}`, () => save(player, { entities: !settings.entities })],
-		[`Coordinates: ${settings.coords ? "on" : "off"}`, () => save(player, { coords: !settings.coords })],
+		...Object.entries(LABELS).map(([key, label]) =>
+			[`${label}: ${settings[key] ? "on" : "off"}`, () => save(player, { [key]: !settings[key] })]),
 		["Hide the map", () => { save(player, { on: false }); return CLOSE; }],
 	];
 

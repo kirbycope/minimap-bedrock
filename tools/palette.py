@@ -337,9 +337,9 @@ LETTER_PIXELS = {
     "S": ("01111", "10000", "01110", "00001", "11110"),
     "W": ("10001", "10001", "10101", "11011", "01010"),
 }
-ARROW_COLOUR = (255, 255, 255)
-ARROW_BACK = (24, 24, 28)
-LETTER_COLOUR = (240, 240, 240)
+ARROW_COLOUR = (222, 46, 38)     # Xaero's minimap draws the player as a red arrow
+OUTLINE = (20, 20, 24)           # the dark edge round the arrow and the letters, so they read on any ground
+LETTER_COLOUR = (255, 255, 255)
 
 
 def resolved() -> dict[str, str]:
@@ -363,10 +363,10 @@ def cell(value: tuple[int, int, int, int]) -> Image.Image:
 
 
 def arrow(direction: str) -> Image.Image:
-    """The player's arrow on its dark square, pointing one of eight ways."""
+    """The player's arrow, red with a dark edge on nothing, pointing one of eight ways."""
     scale = 8
     size = MARKER * scale
-    image = Image.new("RGBA", (size, size), (*ARROW_BACK, 255))
+    image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
     # a triangle pointing up, as fractions of the square, then turned to face the direction
     # kept within 0.4 of the middle, so turning it by 45 degrees does not push a corner off the square
@@ -383,24 +383,29 @@ def arrow(direction: str) -> Image.Image:
     draw.polygon(turned, fill=(*ARROW_COLOUR, 255))
     small = image.resize((MARKER, MARKER), Image.BOX)
     # the HUD draws this a few screen pixels across, where a soft edge reads as a smudge, so take the
-    # shrunk shape back to two colours: every pixel more than half covered becomes arrow
-    for y in range(MARKER):
-        for x in range(MARKER):
-            red, green, blue, _ = small.getpixel((x, y))
-            lit = (red + green + blue) / 3 > (sum(ARROW_BACK) + sum(ARROW_COLOUR)) / 6
-            small.putpixel((x, y), (*(ARROW_COLOUR if lit else ARROW_BACK), 255))
-    return small
+    # shrunk shape back to hard pixels (every pixel more than half covered becomes arrow) and edge it
+    return outlined({(x, y) for y in range(MARKER) for x in range(MARKER) if small.getpixel((x, y))[3] > 127},
+                    MARKER, MARKER, ARROW_COLOUR)
+
+
+def outlined(lit: set, width: int, height: int, colour: tuple) -> Image.Image:
+    """The lit pixels in colour, each pixel touching one (diagonals too) in OUTLINE, the rest clear."""
+    image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    for x, y in lit:
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                if 0 <= x + dx < width and 0 <= y + dy < height and (x + dx, y + dy) not in lit:
+                    image.putpixel((x + dx, y + dy), (*OUTLINE, 255))
+    for x, y in lit:
+        image.putpixel((x, y), (*colour, 255))
+    return image
 
 
 def letter(character: str) -> Image.Image:
-    """A compass letter, its five by five pixels on a seven by seven square."""
+    """A compass letter, its five by five pixels white with a dark edge, on a clear seven by seven square."""
     rows = LETTER_PIXELS[character]
-    image = Image.new("RGBA", (len(rows[0]) + 2, len(rows) + 2), (*ARROW_BACK, 255))
-    for row, bits in enumerate(rows):
-        for column, bit in enumerate(bits):
-            if bit == "1":
-                image.putpixel((column + 1, row + 1), (*LETTER_COLOUR, 255))
-    return image
+    lit = {(column + 1, row + 1) for row, bits in enumerate(rows) for column, bit in enumerate(bits) if bit == "1"}
+    return outlined(lit, len(rows[0]) + 2, len(rows) + 2, LETTER_COLOUR)
 
 
 def code(value: int) -> str:

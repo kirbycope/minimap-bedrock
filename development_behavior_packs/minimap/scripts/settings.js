@@ -13,8 +13,17 @@ const DEFAULTS = {
 	zoom: 2,         // blocks per cell
 	rotate: false,   // false keeps north up and turns the arrow instead
 	entities: true,
-	coords: false,
+	coords: false,   // the lines under the map, as Xaero's minimap has them
+	angle: false,
+	biome: false,
+	light: false,
+	time: false,
+	shape: "square",  // or "circle", as Xaero's minimap offers
 };
+
+export const SHAPES = ["square", "circle"];
+// the lines of text under the map, in the order they are drawn
+export const LINES = ["coords", "angle", "biome", "light", "time"];
 
 export const ZOOMS = [1, 2, 4, 8];
 // How far from the player the map may ask about, in blocks. The game only answers for chunks near the
@@ -68,7 +77,8 @@ function checked(settings) {
 	while (!fits(settings.size, settings.zoom) && settings.size > SIZES[0]) {
 		settings.size = SIZES[SIZES.indexOf(settings.size) - 1];
 	}
-	for (const key of ["on", "rotate", "entities", "coords"]) settings[key] = Boolean(settings[key]);
+	for (const key of ["on", "rotate", "entities", ...LINES]) settings[key] = Boolean(settings[key]);
+	if (!SHAPES.includes(settings.shape)) settings.shape = DEFAULTS.shape;
 	return settings;
 }
 

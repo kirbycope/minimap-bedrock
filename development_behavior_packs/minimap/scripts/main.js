@@ -119,7 +119,9 @@ function run(player, command, message) {
 				break;
 			}
 			const number = Number(value);
-			save(player, { [key]: Number.isNaN(number) ? value === "true" : number });
+			// a word that is not true or false is a setting's name for itself, as in shape circle
+			const word = value === "true" || value === "false" ? value === "true" : value;
+			save(player, { [key]: Number.isNaN(number) ? word : number });
 			break;
 		}
 		case "perf": {

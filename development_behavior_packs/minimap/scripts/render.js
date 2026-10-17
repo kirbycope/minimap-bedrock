@@ -5,13 +5,14 @@
 // out a row at a time as hex, fixed width, in the layout tools/hud.py sets down in hud_layout.js.
 
 import { ARROWS, BORDER, HOSTILE, ITEM, PASSIVE, PLAYER, SHADES, UNKNOWN } from "./palette.js";
-import { CHUNK, CHUNKS, COLUMNS, COORDS, HEAD_MARKER, MARKER, NO_CELL, SIZES } from "./hud_layout.js";
+import { world } from "@minecraft/server";
+import { CHUNK, CHUNKS, COLUMNS, HEAD_MARKER, INFO, INFO_WIDTH, MARKER, NO_CELL, SIZES } from "./hud_layout.js";
 import { columnAt, layerFor } from "./terrain.js";
 
 const BRIGHT = 1;          // the brightness step for ground level with, or above, what lies north of it
 const DARK = 0;
 const MAX_ENTITIES = 64;   // drawn per map, so a mob farm cannot make the map the expensive part
-const CARDINALS = ["n", "e", "s", "w"];
+const NONE = -1;           // a cell outside a round map, drawn as nothing
 
 /** The map for one player, as the titles to send them: the header first, then a title per CHUNK rows. */
 export function draw(player, settings, tick) {
@@ -56,7 +57,7 @@ export function draw(player, settings, tick) {
 
 	if (settings.entities) blips(player, colour, settings, view);
 
-	// the grid as values, framed
+	// the grid as values, framed: a square with a cell of frame all round, or a disc ringed by frame
 	const grid = new Array(span * span).fill(BORDER * SHADES + BRIGHT);
 	for (let row = 0; row < size; row++) {
 		for (let column = 0; column < size; column++) {
@@ -64,13 +65,23 @@ export function draw(player, settings, tick) {
 			grid[(row + 1) * span + column + 1] = colour[at] * SHADES + shade[at];
 		}
 	}
+	if (settings.shape === "circle") {
+		const middle = span / 2;
+		for (let row = 0; row < span; row++) {
+			for (let column = 0; column < span; column++) {
+				const distance = Math.hypot(row + 0.5 - middle, column + 0.5 - middle);
+				if (distance > middle) grid[row * span + column] = NONE;
+				else if (distance > middle - 1) grid[row * span + column] = BORDER * SHADES + BRIGHT;
+			}
+		}
+	}
 
-	// the arrow and the letter are images of their own over the cells, so they only need saying which
-	const heading = settings.rotate ? CARDINALS[Math.round(turned(yaw + 180) / 90) % 4] : "n";
+	// the arrow and the letters are images of their own over the cells, so they only need saying which:
+	// the letter for the top edge, then right, bottom and left, clockwise round the compass
+	const top = settings.rotate ? Math.round(turned(yaw + 180) / 90) % 4 : 0;
+	const letters = [0, 1, 2, 3].map((edge) => (top + edge) % 4).join("");
 	const arrow = settings.rotate ? 0 : pointing(yaw);
-	const coords = `${Math.floor(origin.x)}, ${Math.floor(origin.y)}, ${Math.floor(origin.z)}`;
-	const head = HEAD_MARKER + SIZES.indexOf(size) + arrow + CARDINALS.indexOf(heading) + (settings.coords ? "y" : "n")
-		+ coords.padStart(COORDS).slice(0, COORDS);
+	const head = HEAD_MARKER + SIZES.indexOf(size) + arrow + letters + lines(player, settings, SIZES.indexOf(size));
 	// the right-hand cell first, because the HUD anchors the map by its top right corner
 	const rows = [];
 	for (let row = 0; row < span; row++) {
@@ -92,12 +103,60 @@ function chunks(rows) {
 
 /** The title that takes the map off the screen. */
 export function hidden() {
-	return [HEAD_MARKER + "-00n" + " ".repeat(COORDS), ...chunks([])];
+	return [HEAD_MARKER + "-0123" + "-".repeat(INFO) + " ".repeat(INFO * INFO_WIDTH), ...chunks([])];
+}
+
+/** The lines under the map, as Xaero's minimap has them: which are on, as the map's size for a line that
+is and "-" for one that is not, then whichever they are, in this order, each padded to INFO_WIDTH. */
+function lines(player, settings, sizeIndex) {
+	const at = player.location;
+	const feet = { x: Math.floor(at.x), y: Math.floor(at.y), z: Math.floor(at.z) };
+	const shown = [];
+	// a line must not start with a number: JSON UI reads "   12, 64, -3" as the number 12 and shows nothing
+	if (settings.coords) shown.push(`XYZ: ${feet.x}, ${feet.y}, ${feet.z}`);
+	if (settings.angle) {
+		const { x: pitch, y: yaw } = player.getRotation();
+		shown.push(`${COMPASS[Math.round(turned(yaw + 180) / 45) % 8]} ${yaw.toFixed(1)} / ${pitch.toFixed(1)}`);
+	}
+	if (settings.biome) shown.push(ask(() => named(player.dimension.getBiome(feet).id)));
+	if (settings.light) {
+		shown.push(ask(() => `Light: ${player.dimension.getLightLevel(feet)} (sky ${player.dimension.getSkyLightLevel(feet)})`));
+	}
+	if (settings.time) shown.push(clock());
+	let text = "";
+	for (let line = 0; line < INFO; line++) text += line < shown.length ? sizeIndex : "-";
+	for (let line = 0; line < INFO; line++) text += (shown[line] ?? "").slice(0, INFO_WIDTH).padStart(INFO_WIDTH);
+	return text;
+}
+
+const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+
+/** A reading the game may refuse, an unloaded block or an API a version lacks, as nothing rather than an error. */
+function ask(read) {
+	try {
+		return read();
+	} catch {
+		return "";
+	}
+}
+
+/** "minecraft:dark_forest" as "Dark Forest". */
+function named(id) {
+	return id.replace(/^.*:/, "").split("_").map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
+}
+
+/** The day and the hour, the way a clock in the game would read: tick 0 is six in the morning. */
+function clock() {
+	const ticks = world.getTimeOfDay();
+	const hours = (Math.floor(ticks / 1000) + 6) % 24;
+	const minutes = Math.floor(((ticks % 1000) * 60) / 1000);
+	return `Day ${world.getDay()}, ${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
 /** A value's two letters, its hex digits written a to p: JSON UI reads a slice made only of digits as a
 number, so "03" would become 3 and name no texture. tools/palette.py names the textures the same way. */
 function hex(value) {
+	if (value === NONE) return NO_CELL;
 	return String.fromCharCode(97 + (value >> 4), 97 + (value & 15));
 }
 
