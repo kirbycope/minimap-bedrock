@@ -1,7 +1,8 @@
 """Checks the add-on holds together without Minecraft running.
 
 What these can catch is everything that is written down twice: the pack ids the two manifests agree on,
-the generated glyph pages and colour table against the tool that writes them, and the names the scripts
+the generated textures, HUD and colour table against the tools that write them, the HUD's bindings
+against the title the script writes, and the names the scripts
 import against the names the modules export. Whether the map looks right is a question for the game.
 
     python -m pytest tests
@@ -10,8 +11,10 @@ import against the names the modules export. Whether the map looks right is a qu
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 
 import pytest
 
@@ -35,7 +38,7 @@ def test_manifests_are_valid_json_with_the_parts_minecraft_requires():
         assert manifest["modules"], f"{pack} declares no modules"
 
 
-def test_the_behaviour_pack_depends_on_the_resource_pack_that_holds_the_glyphs():
+def test_the_behaviour_pack_depends_on_the_resource_pack_that_draws_the_map():
     behaviour = read(os.path.join(BEHAVIOR, "manifest.json"))
     resource = read(os.path.join(RESOURCE, "manifest.json"))
     depends = [d for d in behaviour["dependencies"] if d.get("uuid") == resource["header"]["uuid"]]
@@ -60,7 +63,7 @@ def test_the_script_entry_point_exists():
     assert os.path.isfile(os.path.join(BEHAVIOR, entry)), f"{entry} is missing"
 
 
-def test_the_generated_glyphs_and_colour_table_match_the_tool_that_writes_them():
+def test_the_generated_textures_and_colour_table_match_the_tool_that_writes_them():
     result = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "palette.py"), "--check"],
                             capture_output=True, text=True)
     assert result.returncode == 0, f"run tools/palette.py:\n{result.stdout}{result.stderr}"
@@ -95,52 +98,173 @@ def test_a_script_only_imports_modules_that_exist(name):
         assert os.path.isfile(os.path.join(SCRIPTS, module)), f"{name} imports {module}, which is missing"
 
 
-def test_every_glyph_page_is_a_grid_of_sixteen_by_sixteen_whole_cells():
-    from PIL import Image
-    for page in sorted(f for f in os.listdir(os.path.join(RESOURCE, "font")) if f.startswith("glyph_")):
-        image = Image.open(os.path.join(RESOURCE, "font", page))
-        assert image.width % 16 == 0 and image.height % 16 == 0, f"{page} is not a grid of whole pixels"
+def test_the_hud_and_the_title_layout_match_the_tool_that_writes_them():
+    result = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "hud.py"), "--check"],
+                            capture_output=True, text=True)
+    assert result.returncode == 0, f"run tools/hud.py:\n{result.stdout}{result.stderr}"
 
 
-def test_a_glyph_is_as_tall_as_its_cell_and_narrower_than_it():
-    # A page's cells are square, so the cell has to be as tall as a line of text and the art is narrow
-    # inside it. Minecraft takes a glyph's width from the pixels it can see, which is what makes the
-    # map's columns five across rather than eleven.
-    from PIL import Image
-    table = script("palette.js")
-    width = int(re.search(r"export const CELL_W = (\d+)", table).group(1))
-    height = int(re.search(r"export const CELL_H = (\d+)", table).group(1))
-    page = Image.open(os.path.join(RESOURCE, "font", "glyph_E1.png")).convert("RGBA")
-    cell = page.width // 16
-    assert page.width == page.height, "a glyph page must be square or Minecraft cuts the cells short"
-    assert cell == height, "the cell is not as tall as a line of text, which would cut the glyph short"
-    drawn = [x for x in range(cell) if page.getpixel((x, 1))[3]]
-    assert drawn == list(range(width)), f"the art is {len(drawn)} pixels across, not {width}"
-    down = "".join("#" if page.getpixel((1, y))[3] else "." for y in range(cell))
-    assert down == "####.####.", f"the two halves and the lines between them are wrong: {down}"
+# --- the HUD, read the way Minecraft reads it ------------------------------
+#
+# The map title is cut up by JSON UI expressions, and a byte out of place there draws a map shifted by a
+# cell or not at all, with nothing in the content log to say why. So these evaluate the generated
+# bindings the way the game does: '%.Ns' * text keeps the first N bytes, a - b takes every b out of a.
 
 
-def test_a_map_pixel_comes_out_square_at_the_sizes_the_glyphs_are_drawn():
-    # A glyph takes the width of its art plus the one pixel Minecraft puts between characters, and a
-    # line of text is ten pixels tall whatever is on it. The glyph holds two map pixels stacked, so a
-    # map pixel is CELL_W + 1 across and CELL_H / 2 down, and those have to match.
-    table = script("palette.js")
-    width = int(re.search(r"export const CELL_W = (\d+)", table).group(1))
-    height = int(re.search(r"export const CELL_H = (\d+)", table).group(1))
-    assert width + 1 == height / 2, "map pixels would not be square: see tools/palette.py"
+def evaluate(expression, properties):
+    tokens = re.findall(r"'[^']*'|#\w+|\(|\)|\*|-|\+|=|\bnot\b|\band\b|\bor\b", expression)
+    position = 0
+
+    def peek():
+        return tokens[position] if position < len(tokens) else None
+
+    def take():
+        nonlocal position
+        position += 1
+        return tokens[position - 1]
+
+    def primary():
+        token = take()
+        if token == "(":
+            value = binary(0)
+            assert take() == ")"
+            return value
+        if token == "not":
+            return not primary()
+        if token.startswith("'"):
+            return token[1:-1]
+        return properties[token]
+
+    levels = {"or": 1, "and": 2, "=": 3, "+": 4, "-": 4, "*": 5}
+
+    def binary(floor):
+        left = primary()
+        while peek() in levels and levels[peek()] > floor:
+            operator = take()
+            right = binary(levels[operator])
+            if operator == "*":
+                width = int(re.fullmatch(r"%\.(\d+)s", left).group(1))
+                left = right.encode()[:width].decode()
+            elif operator == "-":
+                left = left.replace(right, "") if right else left
+            elif operator == "+":
+                left = left + right
+            elif operator == "=":
+                left = left == right
+            elif operator == "and":
+                left = left and right
+            else:
+                left = left or right
+        return left
+
+    value = binary(0)
+    assert position == len(tokens), f"left over in {expression}"
+    return value
 
 
-def test_there_is_a_glyph_page_for_every_pair_of_values():
-    table = script("palette.js")
-    values = int(re.search(r"export const VALUES = (\d+)", table).group(1))
-    pages = [name for name in os.listdir(os.path.join(RESOURCE, "font")) if name.startswith("glyph_")]
-    assert values ** 2 <= (len(pages) - 1) * 256, "a pair of values has no glyph: run tools/palette.py"
+def hud_controls():
+    hud = read(os.path.join(RESOURCE, "ui", "hud_screen.json"))
+    return {name: body for control in hud["minimap"]["controls"][0]["minimap_map"]["controls"]
+            for name, body in control.items()}
 
 
-def test_every_size_puts_the_player_on_one_line_of_text():
-    # A character is two map rows, so the four cells the player stands on have to fall on one of them.
-    for size in re.search(r"export const SIZES = \[([^\]]*)\]", script("settings.js")).group(1).split(","):
-        assert int(size) % 4 == 0, f"a map {size.strip()} across would split the player's own cells"
+def drawn(title):
+    """What the HUD shows for a title: each control's bound properties, the way the bindings set them."""
+    controls = hud_controls()
+    state = {"minimap_data": {"#preserved_text": title}}
+    for name, body in controls.items():
+        if name == "minimap_data":
+            continue
+        properties = {}
+        for binding in body.get("bindings", []):
+            source = state[binding["source_control_name"]]
+            properties[binding["target_property_name"]] = evaluate(binding["source_property_name"], source)
+        state[name] = properties
+    return state
+
+
+def layout():
+    table = script("hud_layout.js")
+    number = lambda name: int(re.search(rf"export const {name} = (\d+)", table).group(1))
+    text = lambda name: re.search(rf'export const {name} = "([^"]*)"', table).group(1)
+    sizes = [int(s) for s in re.search(r"export const SIZES = \[([^\]]*)\]", table).group(1).split(",")]
+    return text("MARKER"), sizes, number("COLUMNS"), number("COORDS"), text("NO_CELL")
+
+
+def test_every_cell_of_the_hud_shows_the_value_the_title_gives_it():
+    marker, sizes, columns, coords, none = layout()
+    size = sizes[2]
+    span = size + 2
+    grid = [[(row * 7 + column * 3) % 64 for column in range(span)] for row in range(span)]
+    # and a row of one value, because '-' takes away every copy and a repeat is where slicing goes wrong
+    grid[1] = [5] * span
+    title = marker + str(sizes.index(size)) + "5" + "2" + "y" + "12, 64, -3".rjust(coords)
+    for row in grid:
+        title += "".join(f"{row[span - 1 - cell]:02x}" if cell < span else none for cell in range(columns))
+    state = drawn(title)
+    for row in range(columns):
+        for cell in range(columns):
+            texture = state[f"minimap_c{row}_{cell}"]["#texture"]
+            if row < span and cell < span:
+                assert texture == f"textures/ui/minimap/c{grid[row][span - 1 - cell]:02x}", (row, cell, texture)
+            else:
+                assert texture in ("textures/ui/minimap/c", f"textures/ui/minimap/c{none}"), (row, cell, texture)
+    for each in sizes:
+        shown = each == size
+        assert state[f"minimap_arrow_{each}"]["#visible"] == shown
+        assert state[f"minimap_letter_{each}"]["#visible"] == shown
+        assert state[f"minimap_coords_{each}"]["#visible"] == shown
+    assert state[f"minimap_arrow_{size}"]["#texture"] == "textures/ui/minimap/arrow5"
+    assert state[f"minimap_letter_{size}"]["#texture"] == "textures/ui/minimap/letter2"
+    assert state[f"minimap_coords_{size}"]["#value"].strip() == "12, 64, -3"
+
+
+def test_every_texture_the_hud_can_name_is_in_the_pack():
+    marker, sizes, columns, coords, none = layout()
+    folder = os.path.join(RESOURCE, "textures", "ui", "minimap")
+    values = int(re.search(r"export const VALUES = (\d+)", script("palette.js")).group(1))
+    arrows = int(re.search(r"export const ARROWS = (\d+)", script("palette.js")).group(1))
+    names = ["c", f"c{none}"] + [f"c{value:02x}" for value in range(values)]
+    names += [f"arrow{n}" for n in range(arrows)] + [f"letter{n}" for n in range(4)]
+    for name in names:
+        assert os.path.isfile(os.path.join(folder, f"{name}.png")), f"textures/ui/minimap/{name}.png is missing"
+
+
+def test_the_script_writes_a_title_the_hud_reads():
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    marker, sizes, columns, coords, none = layout()
+    with tempfile.TemporaryDirectory() as folder:
+        for name in ("render.js", "palette.js", "hud_layout.js"):
+            shutil.copy(os.path.join(SCRIPTS, name), folder)
+        # terrain.js reads the world; this one answers with a colour by the column's x, so east and
+        # west can be told apart on the map
+        with open(os.path.join(folder, "terrain.js"), "w") as handle:
+            handle.write("export function layerFor() { return 0; }\n"
+                         "export function columnAt(d, l, x, z) { return { c: x > 0 ? 2 : 12, y: 64 }; }\n")
+        with open(os.path.join(folder, "run.mjs"), "w") as handle:
+            handle.write("import { draw } from './render.js';\n"
+                         "const player = { id: 1, location: { x: 0.5, y: 64, z: 0.5 }, dimension: {},"
+                         " getRotation: () => ({ x: 0, y: 90 }) };\n"
+                         "process.stdout.write(draw(player, { size: 16, zoom: 1, rotate: false,"
+                         " entities: false, coords: true }, 0));\n")
+        title = subprocess.run([node, os.path.join(folder, "run.mjs")], capture_output=True, text=True,
+                               check=True).stdout
+    state = drawn(title)
+    size = 16
+    span = size + 2
+    texture = lambda row, cell: state[f"minimap_c{row}_{cell}"]["#texture"][len("textures/ui/minimap/c"):]
+    shade = lambda colour: [f"{colour * 2 + step:02x}" for step in (0, 1)]
+    # the right-hand half of the map is east of the player, x > 0
+    assert texture(span // 2, 1) in shade(2), "the map's east edge is not on the right"
+    assert texture(span // 2, span - 2) in shade(12), "the map's west edge is not on the left"
+    assert texture(0, 0) in shade(1) and texture(span - 1, span - 1) in shade(1), "the frame is missing"
+    assert texture(0, span) in ("", none) and texture(span, 0) in ("", none), "the map runs past its frame"
+    assert state[f"minimap_arrow_{size}"]["#visible"]
+    # facing west with north up, so the arrow is the seventh of eight, counting clockwise from north
+    assert state[f"minimap_arrow_{size}"]["#texture"] == "textures/ui/minimap/arrow6"
+    assert state[f"minimap_coords_{size}"]["#value"].strip() == "0, 64, 0"
 
 
 # --- the project art -------------------------------------------------------

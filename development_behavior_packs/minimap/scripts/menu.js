@@ -1,11 +1,12 @@
 // The menu, which is the whole of the add-on's interface.
 //
 // Every setting is a button rather than a form field, because the useful ones are pressed over and
-// over: zoom in twice, nudge the map up three times. Each press saves, closes and opens the menu
+// over: zoom in twice, grow the map twice. Each press saves, closes and opens the menu
 // again, so the next press is one tap away and the labels always show where the settings now stand.
 
 import { ActionFormData } from "@minecraft/server-ui";
-import { SIZES, ZOOMS, fits, nudge, save, settingsOf, step } from "./settings.js";
+import { SIZES } from "./hud_layout.js";
+import { ZOOMS, fits, save, settingsOf, step } from "./settings.js";
 
 const CLOSE = -1;
 
@@ -29,17 +30,13 @@ export function openMenu(player) {
 			() => step(player, "zoom", 1)],
 		[`Bigger (${settings.size} x ${settings.size})${capped(settings, "size")}`, () => step(player, "size", 1)],
 		["Smaller", () => step(player, "size", -1)],
-		["Move up", () => nudge(player, "up", 1)],
-		["Move down", () => nudge(player, "up", -1)],
-		["Move left", () => nudge(player, "right", -1)],
-		["Move right", () => nudge(player, "right", 1)],
 		[`Turn with me: ${settings.rotate ? "on" : "off"}`, () => save(player, { rotate: !settings.rotate })],
 		[`Mobs and players: ${settings.entities ? "on" : "off"}`, () => save(player, { entities: !settings.entities })],
 		[`Coordinates: ${settings.coords ? "on" : "off"}`, () => save(player, { coords: !settings.coords })],
 		["Hide the map", () => { save(player, { on: false }); return CLOSE; }],
 	];
 
-	const form = new ActionFormData().title("Minimap").body("The map is drawn where the action bar goes. Minecraft decides that spot, so the move buttons are how you put the map in the corner you want.");
+	const form = new ActionFormData().title("Minimap");
 	for (const [label] of buttons) form.button(label);
 	return form.show(player).then((response) => {
 		if (response.canceled || response.selection === undefined) return;
