@@ -1,37 +1,41 @@
-// Turns the blocks around a player into the line of text that is the map.
+// Turns the blocks around a player into the title the HUD draws the map from.
 //
-// One character of the map is one column and TWO rows: the pack's font has a glyph for every pair of
-// colours that can sit one above the other, which is what gets the map down to five screen pixels a
-// block. See tools/palette.py. So the grid is built first, as values, and only then turned into text
-// two rows at a time.
+// The resource pack's ui/hud_screen.json is a grid of image controls, one per map cell, and each shows
+// the texture its two characters of the title name. So the grid is built here as values, and written
+// out a row at a time as hex, fixed width, in the layout tools/hud.py sets down in hud_layout.js.
 
-import {
-	ARROW, BORDER, GLYPH_OVERLAY, GLYPH_TERRAIN, HOSTILE, ITEM, LETTER_N, PASSIVE, PLAYER, SHADES,
-	UNKNOWN, VALUES,
-} from "./palette.js";
+import { ARROWS, BORDER, DEATH, GRID, HOSTILE, ITEM, PASSIVE, PLAYER, SHADES, SLIME, UNKNOWN, WAYPOINT_COLOURS } from "./palette.js";
+import { world } from "@minecraft/server";
+import { CHUNK, CHUNKS, COLUMNS, HEAD_MARKER, INFO, INFO_WIDTH, MARKER, NO_CELL, SIZES } from "./hud_layout.js";
 import { columnAt, layerFor } from "./terrain.js";
+import { isSlimeChunk } from "./slime.js";
+import { deathOf, waypointsOf } from "./waypoints.js";
 
 const BRIGHT = 1;          // the brightness step for ground level with, or above, what lies north of it
 const DARK = 0;
 const MAX_ENTITIES = 64;   // drawn per map, so a mob farm cannot make the map the expensive part
-const CARDINALS = ["n", "e", "s", "w"];
-const MARKER = -1;         // a grid cell covered by the arrow or the heading letter instead of terrain
+const NONE = -1;           // a cell outside a round map, drawn as nothing
 
-/** The map for one player, as the text to put in their action bar. */
+/** The map for one player, as the titles to send them: the header first, then a title per CHUNK rows. */
 export function draw(player, settings, tick) {
 	const { size, zoom } = settings;
 	const span = size + 2;     // the frame is a cell on every side
 	const dimension = player.dimension;
 	const layer = layerFor(player);
 	const origin = player.location;
-	const px = Math.floor(origin.x);
-	const pz = Math.floor(origin.z);
 	const yaw = player.getRotation().y;
 	const view = settings.rotate ? facing(yaw) : { rx: 1, rz: 0, fx: 0, fz: -1 };
+	// With north up the map is snapped to its cells, as Xaero's is: a cell keeps its column until the player
+	// has crossed a whole cell. Unsnapped, every block walked at 2 blocks a cell moved every cell onto a new
+	// column, which is half the map sampled again per block, and in flight the sampling budget never caught up.
+	const snap = settings.rotate ? 1 : zoom;
+	const px = Math.floor(Math.floor(origin.x) / snap) * snap;
+	const pz = Math.floor(Math.floor(origin.z) / snap) * snap;
 
 	// the grid, read out of the terrain cache, with the columns this pass can afford sampled on the way
 	const colour = new Array(size * size);
 	const height = new Array(size * size);
+	const chunk = new Array(size * size);   // which chunk each cell is in, for the overlays
 	for (let row = 0; row < size; row++) {
 		for (let column = 0; column < size; column++) {
 			// the player stands at the middle of the four cells in the centre, so the offsets are halves
@@ -43,6 +47,7 @@ export function draw(player, settings, tick) {
 			const at = row * size + column;
 			colour[at] = cell === undefined ? UNKNOWN : cell.c;
 			height[at] = cell === undefined ? undefined : cell.y;
+			chunk[at] = [x >> 4, z >> 4];
 		}
 	}
 
@@ -58,9 +63,11 @@ export function draw(player, settings, tick) {
 		}
 	}
 
+	overlays(colour, shade, chunk, settings);
 	if (settings.entities) blips(player, colour, settings, view);
+	marks(player, colour, shade, settings, view);
 
-	// the grid as values, framed, then the two markers over it
+	// the grid as values, framed: a square with a cell of frame all round, or a disc ringed by frame
 	const grid = new Array(span * span).fill(BORDER * SHADES + BRIGHT);
 	for (let row = 0; row < size; row++) {
 		for (let column = 0; column < size; column++) {
@@ -68,40 +75,99 @@ export function draw(player, settings, tick) {
 			grid[(row + 1) * span + column + 1] = colour[at] * SHADES + shade[at];
 		}
 	}
-
-	const heading = settings.rotate ? CARDINALS[Math.round(turned(yaw + 180) / 90) % 4] : "n";
-	const letter = GLYPH_OVERLAY + LETTER_N + CARDINALS.indexOf(heading) * 2;
-	const arrow = GLYPH_OVERLAY + ARROW + (settings.rotate ? 0 : pointing(yaw)) * 2;
-	// a marker is two characters wide and one tall, so it covers two columns and the two rows of one
-	// line. Sizes are multiples of four, which is what puts the player's own four cells on one line.
-	const markers = [[0, span / 2 - 1, letter], [span / 2 - 1, span / 2 - 1, arrow]];
-	for (const [row, column] of markers) {
-		for (const cell of [row * span + column, row * span + column + 1,
-			(row + 1) * span + column, (row + 1) * span + column + 1]) grid[cell] = MARKER;
-	}
-
-	const lines = [];
-	if (settings.coords) lines.push(`${Math.floor(origin.x)}, ${Math.floor(origin.y)}, ${Math.floor(origin.z)}`);
-	for (let row = 0; row < span; row += 2) {
-		let line = "";
-		for (let column = 0; column < span; column++) {
-			const top = grid[row * span + column];
-			if (top !== MARKER) {
-				line += String.fromCharCode(GLYPH_TERRAIN + top * VALUES + grid[(row + 1) * span + column]);
-				continue;
+	if (settings.shape === "circle") {
+		const middle = span / 2;
+		for (let row = 0; row < span; row++) {
+			for (let column = 0; column < span; column++) {
+				const distance = Math.hypot(row + 0.5 - middle, column + 0.5 - middle);
+				if (distance > middle) grid[row * span + column] = NONE;
+				else if (distance > middle - 1) grid[row * span + column] = BORDER * SHADES + BRIGHT;
 			}
-			const marker = markers.find((m) => m[0] === row && (m[1] === column || m[1] + 1 === column));
-			line += String.fromCharCode(marker[2] + (column - marker[1]));
 		}
-		lines.push(line);
 	}
 
-	// Spaces in front of a line push the map right and empty lines after it push the map up, because
-	// Minecraft centres this text and anchors it above the hotbar. See settings.js.
-	const pad = " ".repeat(settings.right);
-	const padded = lines.map((line) => pad + line);
-	for (let blank = 0; blank < settings.up; blank++) padded.push(" ");
-	return padded.join("\n");
+	// the arrow and the letters are images of their own over the cells, so they only need saying which:
+	// the letter for the top edge, then right, bottom and left, clockwise round the compass
+	const top = settings.rotate ? Math.round(turned(yaw + 180) / 90) % 4 : 0;
+	const letters = [0, 1, 2, 3].map((edge) => (top + edge) % 4).join("");
+	const arrow = settings.rotate ? 0 : pointing(yaw);
+	const head = HEAD_MARKER + SIZES.indexOf(size) + arrow + letters + lines(player, settings, SIZES.indexOf(size));
+	// the right-hand cell first, because the HUD anchors the map by its top right corner
+	const rows = [];
+	for (let row = 0; row < span; row++) {
+		let line = "";
+		for (let cell = 0; cell < COLUMNS; cell++) line += cell < span ? hex(grid[row * span + span - 1 - cell]) : NO_CELL;
+		rows.push(line);
+	}
+	return [head, ...chunks(rows)];
+}
+
+/** The rows as chunk titles, each with its marker; a chunk past the map's last row goes empty. */
+function chunks(rows) {
+	const titles = [];
+	for (let chunk = 0; chunk < CHUNKS; chunk++) {
+		titles.push(`${MARKER}r${String(chunk).padStart(2, "0")}` + rows.slice(chunk * CHUNK, chunk * CHUNK + CHUNK).join(""));
+	}
+	return titles;
+}
+
+/** The title that takes the map off the screen. */
+export function hidden() {
+	return [HEAD_MARKER + "-0123" + "-".repeat(INFO) + " ".repeat(INFO * INFO_WIDTH), ...chunks([])];
+}
+
+/** The lines under the map, as Xaero's minimap has them: which are on, as the map's size for a line that
+is and "-" for one that is not, then whichever they are, in this order, each padded to INFO_WIDTH. */
+function lines(player, settings, sizeIndex) {
+	const at = player.location;
+	const feet = { x: Math.floor(at.x), y: Math.floor(at.y), z: Math.floor(at.z) };
+	const shown = [];
+	// a line must not start with a number: JSON UI reads "   12, 64, -3" as the number 12 and shows nothing
+	if (settings.coords) shown.push(`XYZ: ${feet.x}, ${feet.y}, ${feet.z}`);
+	if (settings.angle) {
+		const { x: pitch, y: yaw } = player.getRotation();
+		shown.push(`${COMPASS[Math.round(turned(yaw + 180) / 45) % 8]} ${yaw.toFixed(1)} / ${pitch.toFixed(1)}`);
+	}
+	if (settings.biome) shown.push(ask(() => named(player.dimension.getBiome(feet).id)));
+	if (settings.light) {
+		shown.push(ask(() => `Light: ${player.dimension.getLightLevel(feet)} (sky ${player.dimension.getSkyLightLevel(feet)})`));
+	}
+	if (settings.time) shown.push(clock());
+	let text = "";
+	for (let line = 0; line < INFO; line++) text += line < shown.length ? sizeIndex : "-";
+	for (let line = 0; line < INFO; line++) text += (shown[line] ?? "").slice(0, INFO_WIDTH).padStart(INFO_WIDTH);
+	return text;
+}
+
+const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+
+/** A reading the game may refuse, an unloaded block or an API a version lacks, as nothing rather than an error. */
+function ask(read) {
+	try {
+		return read();
+	} catch {
+		return "";
+	}
+}
+
+/** "minecraft:dark_forest" as "Dark Forest". */
+function named(id) {
+	return id.replace(/^.*:/, "").split("_").map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
+}
+
+/** The day and the hour, the way a clock in the game would read: tick 0 is six in the morning. */
+function clock() {
+	const ticks = world.getTimeOfDay();
+	const hours = (Math.floor(ticks / 1000) + 6) % 24;
+	const minutes = Math.floor(((ticks % 1000) * 60) / 1000);
+	return `Day ${world.getDay()}, ${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+/** A value's two letters, its hex digits written a to p: JSON UI reads a slice made only of digits as a
+number, so "03" would become 3 and name no texture. tools/palette.py names the textures the same way. */
+function hex(value) {
+	if (value === NONE) return NO_CELL;
+	return String.fromCharCode(97 + (value >> 4), 97 + (value & 15));
 }
 
 /** Mobs, players and dropped items, over the terrain they are standing on. */
@@ -131,6 +197,72 @@ function blips(player, colour, settings, view) {
 	}
 }
 
+/** Xaero's chunk grid and slime chunks. Both go over every other cell, so the ground still shows
+through: the grid as a dashed line where a cell is in another chunk from the cell before it, the
+slime chunks as a green checker. */
+function overlays(colour, shade, chunk, settings) {
+	const { size } = settings;
+	if (!settings.grid && !settings.slime) return;
+	for (let row = 0; row < size; row++) {
+		for (let column = 0; column < size; column++) {
+			const at = row * size + column;
+			const [cx, cz] = chunk[at];
+			const every = (row + column) % 2 === 0;
+			if (settings.slime && every && isSlimeChunk(cx, cz)) {
+				colour[at] = SLIME;
+				shade[at] = BRIGHT;
+			}
+			if (!settings.grid || !every) continue;
+			const left = column > 0 ? chunk[at - 1] : chunk[at];
+			const above = row > 0 ? chunk[at - size] : chunk[at];
+			if (left[0] !== cx || left[1] !== cz || above[0] !== cx || above[1] !== cz) {
+				colour[at] = GRID;
+				shade[at] = BRIGHT;
+			}
+		}
+	}
+}
+
+const PLUS = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]];
+const CROSS = [[0, 0], [1, 1], [-1, -1], [1, -1], [-1, 1]];
+
+/** The waypoints and the deathpoint, over everything else. One off the map is held at its edge, in the
+direction it lies, as Xaero's minimap does, so the way to it is always on screen. */
+function marks(player, colour, shade, settings, view) {
+	const { size, zoom } = settings;
+	const here = player.dimension.id;
+	const spots = [];
+	if (settings.waypoints) {
+		for (const point of waypointsOf(player)) {
+			if (point.dimension === here) spots.push([point, WAYPOINT_COLOURS[point.colour] ?? WAYPOINT_COLOURS.white, PLUS]);
+		}
+	}
+	const death = deathOf(player);
+	if (settings.deathpoint && death !== undefined && death.dimension === here) spots.push([death, DEATH, CROSS]);
+	const middle = size / 2 - 0.5;
+	const limit = size / 2 - 1.5;   // far enough in that the whole mark stays on the map
+	for (const [point, value, shape] of spots) {
+		const dx = point.x + 0.5 - player.location.x;
+		const dz = point.z + 0.5 - player.location.z;
+		let cx = (dx * view.rx + dz * view.rz) / zoom;
+		let cy = -(dx * view.fx + dz * view.fz) / zoom;
+		const out = settings.shape === "circle" ? Math.hypot(cx, cy) : Math.max(Math.abs(cx), Math.abs(cy));
+		if (out > limit) {
+			cx *= limit / out;
+			cy *= limit / out;
+		}
+		const column = Math.round(cx + middle);
+		const row = Math.round(cy + middle);
+		for (const [ox, oy] of shape) {
+			const x = column + ox;
+			const y = row + oy;
+			if (x < 0 || x >= size || y < 0 || y >= size) continue;
+			colour[y * size + x] = value;
+			shade[y * size + x] = BRIGHT;
+		}
+	}
+}
+
 function kind(entity) {
 	if (entity.typeId === "minecraft:player") return PLAYER;
 	if (entity.typeId === "minecraft:item" || entity.typeId === "minecraft:xp_orb") return ITEM;
@@ -150,34 +282,12 @@ function facing(yaw) {
 	};
 }
 
-/** Which of the eight arrows to draw when north stays at the top of the map. */
+/** Which of the arrows to draw when north stays at the top of the map. */
 function pointing(yaw) {
-	return Math.round(turned(yaw - 180) / 45) % 8;
+	return Math.round(turned(yaw - 180) / (360 / ARROWS)) % ARROWS;
 }
 
 /** An angle in degrees brought back into 0 to 360, whatever it started as. */
 function turned(degrees) {
 	return ((degrees % 360) + 360) % 360;
-}
-
-/**
- * A ruler for the font: pairs of known colours in a block, then a line of ordinary text. Measuring this
- * in a screenshot is how the cell size and the spacing were found, and how to find them again when
- * Minecraft's font changes.
- */
-export function calibration() {
-	const a = PLAYER * SHADES + BRIGHT;
-	const b = HOSTILE * SHADES + BRIGHT;
-	const lines = [];
-	for (let row = 0; row < 4; row++) {
-		let line = "";
-		for (let column = 0; column < 8; column++) {
-			const top = (row + column) % 2 === 0 ? a : b;
-			line += String.fromCharCode(GLYPH_TERRAIN + top * VALUES + (top === a ? b : a));
-		}
-		lines.push(line);
-	}
-	lines.push(String.fromCharCode(GLYPH_OVERLAY + ARROW) + String.fromCharCode(GLYPH_OVERLAY + ARROW + 1));
-	lines.push("0123456789");
-	return lines.join("\n");
 }

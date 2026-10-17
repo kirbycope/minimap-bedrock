@@ -3,36 +3,39 @@
 // Dynamic properties are read far more often than they are written, so a player's settings are read
 // once into a cache and the cache is what the tick loop asks.
 
-// Where the map sits is two numbers rather than a corner, because an add-on cannot ask how big the
-// screen is. Minecraft centres the action bar's text and anchors it a fixed distance above the hotbar,
-// so spaces in front of a line slide the map right and empty lines under the map slide it up. The
-// defaults put it in the top right corner of a 1920x1200 screen at the interface size Minecraft picks
-// for it; on a smaller screen the map starts lower and further in, and the arrows in the menu move it.
+import { SIZES } from "./hud_layout.js";
+
+// The map sits in the top right corner on every screen: the resource pack's HUD layer anchors it there,
+// so there is no position to keep.
 const DEFAULTS = {
 	on: true,
-	size: 16,        // cells across, a multiple of four so the player sits on one line of text
+	size: 16,        // cells across, one of SIZES
 	zoom: 2,         // blocks per cell
 	rotate: false,   // false keeps north up and turns the arrow instead
 	entities: true,
-	coords: false,
-	right: 88,       // spaces in front of every line
-	up: 30,          // empty lines after the map
+	coords: false,   // the lines under the map, as Xaero's minimap has them
+	angle: false,
+	biome: false,
+	light: false,
+	time: false,
+	enlarged: false, // the biggest map the zoom allows, for a moment, as Xaero's enlarged map
+	grid: false,     // the chunk grid
+	slime: false,    // slime chunks
+	waypoints: true,
+	deathpoint: true,
+	shape: "square",  // or "circle", as Xaero's minimap offers
 };
 
-// Multiples of four, because a character holds two rows and the player's own four cells have to fall
-// on one of them. A cell is five pixels, so sixteen across is ninety pixels of screen with the frame.
-export const SIZES = [8, 12, 16, 20, 24, 32, 40];
+export const SHAPES = ["square", "circle"];
+// the lines of text under the map, in the order they are drawn
+export const LINES = ["coords", "angle", "biome", "light", "time"];
+
 export const ZOOMS = [1, 2, 4, 8];
-// The smaller Minecraft draws its interface, the more of these it takes to reach a corner, so the
-// range has to cover the smallest interface size as well as the largest.
 // How far from the player the map may ask about, in blocks. The game only answers for chunks near the
 // player, and while you are moving the ground ahead has not arrived yet, so a map that reaches further
 // than this draws black however long you wait. Size times zoom is what reaches: a map of 24 cells at 4
 // blocks a cell looks 48 blocks out. The menu stops at the combinations that fit.
 export const REACH = 48;
-
-export const LIMITS = { right: [0, 600], up: [0, 200] };
-export const STEP = { right: 8, up: 4 };
 
 const cache = new Map();   // player id -> settings
 
@@ -53,8 +56,7 @@ export function settingsOf(player) {
  * Writes the changed settings back to the player and to the cache.
  *
  * Everything is put through the same checks as a setting read off the player, because a size that is
- * not one of SIZES would land the player's own cells across two lines of text and the map would throw
- * rather than draw. /scriptevent minimap:set takes whatever is typed, so this is where that is caught.
+ * not one of SIZES has no place in the map title and the HUD would draw no arrow for it. /scriptevent minimap:set takes whatever is typed, so this is where that is caught.
  */
 export function save(player, changes) {
 	const settings = checked({ ...settingsOf(player), ...changes });
@@ -80,15 +82,9 @@ function checked(settings) {
 	while (!fits(settings.size, settings.zoom) && settings.size > SIZES[0]) {
 		settings.size = SIZES[SIZES.indexOf(settings.size) - 1];
 	}
-	settings.right = clamped("right", settings.right);
-	settings.up = clamped("up", settings.up);
-	for (const key of ["on", "rotate", "entities", "coords"]) settings[key] = Boolean(settings[key]);
+	for (const key of ["on", "rotate", "entities", "enlarged", "waypoints", "deathpoint", "grid", "slime", ...LINES]) settings[key] = Boolean(settings[key]);
+	if (!SHAPES.includes(settings.shape)) settings.shape = DEFAULTS.shape;
 	return settings;
-}
-
-/** Moves the map one step in one direction, which is what the arrows in the menu do. */
-export function nudge(player, key, steps) {
-	return save(player, { [key]: settingsOf(player)[key] + steps * STEP[key] });
 }
 
 /** The next size or zoom up or down its list, stopping at the ends. */
@@ -103,13 +99,15 @@ export function step(player, key, direction) {
 	return save(player, { [key]: next });
 }
 
-export function forget(playerId) {
-	cache.delete(playerId);
+/** The settings the map is drawn with: the biggest size that still fits the zoom while enlarged. */
+export function shownWith(settings) {
+	if (!settings.enlarged) return settings;
+	const size = SIZES.filter((each) => fits(each, settings.zoom)).pop() ?? settings.size;
+	return { ...settings, size };
 }
 
-function clamped(key, value) {
-	const [low, high] = LIMITS[key];
-	return Math.min(high, Math.max(low, Math.round(Number(value) || 0)));
+export function forget(playerId) {
+	cache.delete(playerId);
 }
 
 /** The allowed value closest to one that is out of date or came from a hand-edited property. */

@@ -1,21 +1,25 @@
 // Draws every player's map, and listens for the few commands the add-on has.
 //
-// The map is written into the action bar, which fades out on its own after a few seconds. Redrawing it
-// five times a second is what keeps it on screen, and it is far below the rate at which the fade would
-// start to show.
+// The map is sent as a title, which the resource pack's HUD layer keeps and draws as a grid of cells
+// (see tools/hud.py). The HUD holds the last map until the next, so a title is only sent when the map
+// changed, and now and then besides for a HUD that was rebuilt since: a rejoin, a dimension change.
 
 import { CommandPermissionLevel, CustomCommandStatus, system, world } from "@minecraft/server";
 import { openMenu } from "./menu.js";
-import { calibration, draw } from "./render.js";
+import { draw, hidden } from "./render.js";
 import { beginPass } from "./terrain.js";
-import { forget, save, settingsOf } from "./settings.js";
+import { forget, save, settingsOf, shownWith } from "./settings.js";
+import { addWaypoint, forgetWaypoints } from "./waypoints.js";
+import { WAYPOINT_COLOURS } from "./palette.js";
 
-const REFRESH = 4;          // ticks between redraws
-const CALIBRATE_FOR = 600;  // ticks the font ruler stays up when it is asked for
+const REFRESH = 4;          // ticks between redraws, at the most
+const RESEND = 100;         // ticks after which every part of the map is sent again, for a HUD rebuilt since
 const QUIET = 200;          // ticks of silence after a complaint, so one broken frame is not a wall of log
 
-const calibrating = new Map();   // player id -> the tick the ruler comes down
-const drawn = new Map();         // player id -> the last map that drew, so one bad pass is not a blank screen
+// A title is at most 512 characters, so a map is several (render.js): the header and a title per few
+// rows. A player gets one title a tick, so the HUD sees every one of them, and only the parts that
+// changed since they were last sent. A player's queue is refilled once it has gone out.
+const players = new Map();   // player id -> { sent: [title per part], queue: [part index], drawn, resent }
 let complained = -QUIET;
 let spent = 0;      // milliseconds the last pass took, for minimap:perf
 let worst = 0;
@@ -23,31 +27,32 @@ let worst = 0;
 system.runInterval(() => {
 	const started = Date.now();
 	const tick = system.currentTick;
-	const players = world.getAllPlayers();
+	const all = world.getAllPlayers();
 	let widest = 0;
-	for (const player of players) {
-		const settings = settingsOf(player);
+	for (const player of all) {
+		const settings = shownWith(settingsOf(player));
 		if (settings.on) widest = Math.max(widest, settings.size * settings.size);
 	}
-	beginPass(widest);
-	for (const player of players) {
+	let began = false;
+	for (const player of all) {
 		try {
-			const settings = settingsOf(player);
-			if (!settings.on) continue;
-			const until = calibrating.get(player.id);
-			if (until !== undefined && tick > until) calibrating.delete(player.id);
-			const text = until !== undefined && tick <= until ? calibration() : draw(player, settings, tick);
-			drawn.set(player.id, text);
-			player.onScreenDisplay.setActionBar(text);
-		} catch (error) {
-			// the map is a picture of a moment, so the moment before it is a better answer than a
-			// screen with no map on it at all
-			const last = drawn.get(player.id);
-			if (last !== undefined) {
-				try {
-					player.onScreenDisplay.setActionBar(last);
-				} catch { /* the player is on their way out of the world */ }
+			let state = players.get(player.id);
+			if (state === undefined) players.set(player.id, state = { sent: [], queue: [], parts: [], drawn: -REFRESH, resent: tick });
+			if (state.queue.length === 0 && tick - state.drawn >= REFRESH) {
+				const settings = shownWith(settingsOf(player));
+				if (settings.on && !began) { beginPass(widest); began = true; }
+				state.parts = settings.on ? draw(player, settings, tick) : hidden();
+				state.drawn = tick;
+				const everything = tick - state.resent >= RESEND;
+				if (everything) state.resent = tick;
+				state.queue = state.parts.map((_, part) => part).filter((part) => everything || state.sent[part] !== state.parts[part]);
 			}
+			const part = state.queue.shift();
+			if (part === undefined) continue;
+			player.onScreenDisplay.setTitle(state.parts[part], { fadeInDuration: 0, stayDuration: 1, fadeOutDuration: 0 });
+			state.sent[part] = state.parts[part];
+		} catch (error) {
+			// a pass that throws sends nothing, and the HUD goes on showing the map before it
 			if (tick - complained >= QUIET) {
 				complained = tick;
 				console.warn(`[minimap] ${error}`);
@@ -56,7 +61,7 @@ system.runInterval(() => {
 	}
 	spent = Date.now() - started;
 	if (spent > worst) worst = spent;
-}, REFRESH);
+}, 1);
 
 system.afterEvents.scriptEventReceive.subscribe((event) => {
 	const player = event.sourceEntity;
@@ -85,16 +90,18 @@ system.beforeEvents.startup.subscribe((event) => {
 });
 
 // A compass opens the menu. It is the one item in the game that is already about finding your way,
-// and it means the map can be set up without typing a command.
+// and it means the map can be set up without typing a command. Sneaking as you use it enlarges the map
+// instead, and does it again to put it back.
 world.afterEvents.itemUse.subscribe((event) => {
 	if (event.itemStack.typeId !== "minecraft:compass") return;
-	run(event.source, "menu", "");
+	if (event.source.isSneaking) run(event.source, "enlarge", "");
+	else run(event.source, "menu", "");
 });
 
 world.afterEvents.playerLeave.subscribe((event) => {
 	forget(event.playerId);
-	calibrating.delete(event.playerId);
-	drawn.delete(event.playerId);
+	forgetWaypoints(event.playerId);
+	players.delete(event.playerId);
 });
 
 function run(player, command, message) {
@@ -105,6 +112,9 @@ function run(player, command, message) {
 		case "on":
 		case "off":
 			save(player, { on: command === "on" });
+			break;
+		case "enlarge":
+			save(player, { enlarged: !settingsOf(player).enlarged });
 			break;
 		case "toggle":
 			save(player, { on: !settingsOf(player).on });
@@ -117,13 +127,18 @@ function run(player, command, message) {
 				break;
 			}
 			const number = Number(value);
-			save(player, { [key]: Number.isNaN(number) ? value === "true" : number });
+			// a word that is not true or false is a setting's name for itself, as in shape circle
+			const word = value === "true" || value === "false" ? value === "true" : value;
+			save(player, { [key]: Number.isNaN(number) ? word : number });
 			break;
 		}
-		case "calibrate":
-			// the ruler the font was measured with, so the cell size can be checked again from a screenshot
-			calibrating.set(player.id, system.currentTick + CALIBRATE_FOR);
+		case "waypoint": {
+			// /scriptevent minimap:waypoint [colour] [name], a waypoint where you stand
+			const words = message.trim().split(/\s+/).filter(Boolean);
+			const colour = words[0] in WAYPOINT_COLOURS ? words.shift() : "white";
+			if (!addWaypoint(player, words.join(" "), colour)) player.sendMessage("[minimap] the waypoint list is full");
 			break;
+		}
 		case "perf": {
 			// the log as well as the chat, because this is for whoever is working on the add-on
 			const report = `[minimap] last pass ${spent} ms, worst ${worst} ms, ${world.getAllPlayers().length} player(s)`;

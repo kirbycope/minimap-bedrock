@@ -14,8 +14,8 @@ the screen, and it is all add-on: no mods, no client changes, Windows, console a
    - Activate the Resource pack
 
 Both packs are needed. The behaviour pack works out what the map should look like and the resource
-pack holds the colours it is drawn with, so with only one of them you get nothing, or a grid of
-question marks.
+pack draws it, so with only one of them you get nothing, or a title full of hex in the middle of the
+screen.
 
 ## Using it
 
@@ -26,22 +26,30 @@ pressed over and over:
 | --- | --- |
 | Zoom in, Zoom out | 1, 2, 4 or 8 blocks to a cell |
 | Bigger, Smaller | 8, 12, 16, 20, 24, 32 or 40 blocks across |
-| Move up, down, left, right | where on the screen the map sits |
 | Turn with me | off keeps north at the top and turns the arrow instead |
 | Mobs and players | the coloured dots |
-| Coordinates | a line of numbers above the map |
+| Shape | square, or round as Xaero's minimap draws it |
+| Enlarged | the biggest map the zoom allows; sneaking as you use the compass does the same, and again puts it back |
+| Chunk grid | a dashed line along every chunk edge |
+| Slime chunks | a green checker over the chunks slimes spawn in |
+| Waypoints | add a named, coloured waypoint where you stand, delete one, and show or hide them and where you last died |
+| Coordinates, Facing, Biome, Light level, Time of day | the lines of text under the map, each on or off |
 | Hide the map | turns it off; the compass still opens this menu |
 
 Everything is per player and is remembered between sessions.
 
 If you would rather type, `/scriptevent minimap:menu` opens the same menu, and `minimap:on`,
 `minimap:off`, `minimap:toggle` and `minimap:set <setting> <value>` do what they say. The settings are
-`size`, `zoom`, `rotate`, `entities`, `coords`, `right` and `up`.
+`size`, `zoom`, `shape` (`square` or `circle`), `rotate`, `entities`, and the lines under the map:
+`coords`, `angle`, `biome`, `light` and `time`, each `true` or `false`, `waypoints` and `deathpoint`
+for the marks, `grid` and `slime` for the overlays, and `enlarged`. `minimap:enlarge` toggles the
+enlarged map. `minimap:waypoint [colour] [name]` adds a waypoint where you stand; the colours are red,
+orange, yellow, green, aqua, blue, purple, pink and white.
 
 ### What the map shows
 
-North is up unless you turn that off. The letter in the top edge is which way up is, the white arrow in
-the middle is you, and it points where you are looking.
+North is up unless you turn that off. N, E, S and W sit in the edges of the frame, and the red arrow in
+the middle is you, pointing where you are looking.
 
 The colours are Minecraft's own map colours, the ones the map in your hand is drawn with, and a cell is
 drawn darker when it is lower than the cell to the north of it, which is what makes hills read as
@@ -49,21 +57,24 @@ hills. Water and lava colour the ground they lie on, so a coast reads as a coast
 "topmost block" answers with the floor of an ocean rather than the ocean, and the map asks what is
 standing on that floor. A red dot is a monster, white is an animal or a villager, light blue is
 another player and yellow is a dropped item.
+A waypoint is a plus in its colour and the place you last died is a black X. One too far away to be on
+the map is held at the map's edge in the direction it lies, as Xaero's minimap does, so you can steer
+for it.
+
+The overlays go over every other cell, so the ground still shows through. Slime chunks are worked out
+the way Bedrock picks them, from the chunk's own position rather than the world seed (`scripts/slime.js`,
+checked against SlimeChunkFinderAddonBE's generator in the tests), so they are right in every world. Under the map go whichever lines are on, in this order: your block coordinates, the way you face with
+the camera's yaw and pitch, the biome, the block and sky light where you stand, and the day and the hour.
 
 Underground, the map shows the level you are standing on rather than the sky above it, and the same in
 the Nether. Standing under a tree counts as being under a roof, so a forest shows its floor rather
 than its canopy.
 
-## Moving the map
+## Where the map sits
 
-The map starts in the top right corner on a 1920x1200 screen. On a smaller one it starts lower down and
-further in, and the move buttons put it where you want it.
-
-That is not fussiness: an add-on cannot ask Minecraft how big the screen is, or where to draw. The map
-is text in the action bar, and the only say an add-on has over where that text goes is how much of it
-there is. Spaces in front of each line push the map right, empty lines after it push the map up, and
-the move buttons change those two numbers. It is why the position is a setting rather than a corner
-you pick.
+In the top right corner, on every screen. The resource pack adds the map to the HUD anchored to that
+corner, so it is in the same place at any window size and interface scale, and it hides with the rest of
+the HUD.
 
 ## What it costs, and how far it can see
 
@@ -81,44 +92,51 @@ wait, which is what a 40 cell map at 8 blocks a cell used to be.
 
 ## What else it touches
 
-The map is action bar text, so another add-on's action bar message appears where the map is and the two
-take turns. The resource pack also replaces `textures/ui/hud_tip_text_background` with nothing, which
-takes the grey panel off the action bar, map or no map.
+The map travels from the behaviour pack to the HUD as a title starting `mm:map`, and the resource pack
+hides the vanilla title while one is up. So a title from a command or another add-on is cut short when
+the map changes, which is at most five times a second while you move and once every five seconds while
+you stand still; turning the map off stops the titles altogether. The action bar is left alone.
 
-## How it is drawn, and what that costs it
+It sits alongside [cobblemon-bedrock](https://github.com/kirbycope/cobblemon-bedrock), which carries its
+HUD in titles the same way: each pack hides the other's titles as well as its own, so they can be in
+either order.
 
-Bedrock gives an add-on no way to draw pixels on the screen, so the map is text, written into the action
-bar five times a second from a font the resource pack brings with it.
+## How it is drawn
 
-Two measurements decide everything else, and neither is a pack's to change:
+An add-on cannot draw on the screen, but a resource pack can add controls to the HUD, and a HUD control
+can read the title text. So `ui/hud_screen.json` is a grid of image controls, one per map cell, 42 by 42
+for the largest map and its frame. The script writes the map as a title, two hex digits a cell, and each
+control cuts its two characters out of the title and shows the texture they name:
+`textures/ui/minimap/caa.png` to `cdp.png`, one per colour and brightness step, the value's two hex
+digits written a to p. Letters rather than digits, because JSON UI reads a slice that starts with a
+number as that number, so `03` would come out as 3 and name no texture.
 
-- a line of text is ten pixels tall, whatever is written on it
-- a glyph takes the width of the pixels it actually has, plus one
+JSON UI can only cut a string at a byte count it is given (`'%.Ns'` keeps the first N bytes, and taking
+a shorter prefix away from a longer one leaves the bytes between), so the titles are fixed width. The game refuses a title over 512 characters, so a map is ten of them,
+sent one a tick and only when they changed: a header with the size, the arrow, the four compass letters
+and the lines of text, then nine chunks of five rows each, 42 cells wide whatever the map's size, the
+right-hand cell first so the map grows out of its corner. A row control cuts its row out of its chunk
+once, and its cells cut from that, so no cell works on a whole title.
+The HUD keeps the last map title until the next one (the "preserved title" pattern cobblemon-bedrock's
+party uses), which is why the script only sends one when the map changed.
 
-The ten is the floor on how fine the map can be, so one character carries **two** map pixels, stacked,
-five pixels each, and four pixels of art plus Minecraft's one makes the columns five across as well. A
-block is five screen pixels square. It is the idea behind drawing with braille dots in a terminal,
-except that the pack supplies its own font, so each half is a full colour rather than a dot that is on
-or off.
+What that buys over drawing the map as text, which is how it was drawn before: a cell is a square of
+real pixels, two interface units across, with no gap between cells; the map sits in a corner rather than
+where the action bar puts it; and the palette is no longer held to 64 values by needing a glyph for every
+pair of them, since two hex digits can name 256.
 
-The price is combinations: a glyph has to exist for every pair of values that can sit one above the
-other. Thirty-two colours in two brightness steps is 4096 glyphs, sixteen pages of the private use area,
-which `tools/palette.py` draws. That is why the palette is thirty-two colours and the shading is two
-steps rather than Minecraft's four.
-
-What is left is the one pixel between characters, which no pack can remove. The glyphs leave a matching
-pixel under each half so the grid over the map is even on all four sides rather than stripes down the
-sides only.
-
-A minimap mod on Java draws to the screen directly and has none of this: Xaero's can colour a block from
-its own texture, at one screen pixel a block or finer. Five pixels a block is where an add-on stops.
+The arrow, the compass letters and the lines of text are controls of their own over the cells. A
+control's position cannot be bound, so there is a set for every map size and the header says which to
+show. Each line carries its own flag in the header, the size again when it is on, because JSON UI did
+not honour `and` between two slices; one comparison per control is what works.
 
 ## Development
 
-The packs are the two `development_*_packs/minimap` folders, and three files in them are generated:
+The packs are the two `development_*_packs/minimap` folders, and most of the resource pack is generated:
 
 ```bash
-python tools/palette.py      # font/glyph_E1.png, font/glyph_E2.png, scripts/palette.js
+python tools/palette.py      # textures/ui/minimap/*.png, scripts/palette.js
+python tools/hud.py          # ui/hud_screen.json, scripts/hud_layout.js
 python tools/pack_icon.py    # both pack_icon.png files
 python -m pytest tests       # checks the manifests, the generated files and the imports
 python tools/build_addon.py  # minimap-bedrock.mcaddon
@@ -126,16 +144,16 @@ python tools/make_thumbnail.py  # assets/thumbnail.png and the repository previe
 ```
 
 `tools/palette.py` is the only place a colour is written down. It holds the colour of every block the
-map knows, the rules it guesses the rest by, and the pixel sizes above, and it writes both the seventeen
-glyph pages and the colour table the scripts read.
+map knows and the rules it guesses the rest by, and it writes the cell textures and the colour table the
+scripts read. `tools/hud.py` is the only place the title's layout is written down, and it writes both
+the HUD that reads the title and the constants the script writes it with. The tests evaluate the HUD's
+bindings the way the game does, against a title from the real `render.js`, so a byte out of place in
+either fails there rather than in the game.
 
 To see the map while working on it, point a Bedrock Dedicated Server at a world with both packs
 junctioned into it, or copy them into the client's own `development_*_packs` folders. Changing a script
 needs the world reloaded; changing anything in the resource pack needs the client restarted and the
 pack's version bumped, because the client caches a pack by its id and version.
-
-`/scriptevent minimap:calibrate` puts a ruler of glyphs on screen, which is how the numbers above were
-measured and how to measure them again if Minecraft's font ever changes.
 
 ### The thumbnail
 
@@ -160,6 +178,6 @@ anything that changes how the map looks, and take a fresh capture first.
 
 ## Licence
 
-MIT. Nothing shipped inside the `.mcaddon` comes from anywhere else: the glyphs, the arrows and the icon
-are all drawn by `tools/`. The thumbnail is set in Passion One, under the SIL Open Font License, which is
+MIT. Nothing shipped inside the `.mcaddon` comes from anywhere else: the cells, the arrows, the letters
+and the icon are all drawn by `tools/`. The thumbnail is set in Passion One, under the SIL Open Font License, which is
 in the repository but not in either pack. See [CREDITS.md](CREDITS.md).

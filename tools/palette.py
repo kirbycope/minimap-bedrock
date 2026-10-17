@@ -1,32 +1,25 @@
-"""Writes the minimap's glyph pages and the colour table the behaviour pack reads.
+"""Writes the minimap's cell textures and the colour table the behaviour pack reads.
 
-Bedrock has no way to draw pixels on the HUD, so the map is text: characters from a font this pack
-brings with it. Two measurements, both taken in the game and both out of a pack's hands, set everything
-else:
+The map is drawn by the HUD layer in ui/hud_screen.json (written by tools/hud.py): a grid of image
+controls, one per map cell, each showing the texture its two characters of the map title name. So a
+colour is a 1x1 texture here, and a value is a cell's colour at one of its brightness steps.
 
-    a line of text is ten pixels tall, whatever is written on it
-    a glyph takes the width of the pixels it actually has, plus one
-
-That ten is the floor on how fine the map can be, so a glyph carries TWO map pixels, stacked, five
-pixels each. Four pixels of art plus the one Minecraft adds makes a column five across as well, so the
-map comes out square at five pixels a block: four times the map in the same corner as one pixel to a
-glyph would give. It is the idea behind drawing with braille dots in a terminal, except that this pack
-supplies its own font, so each half is a full colour rather than a dot that is on or off.
-
-The price is combinations. A glyph has to exist for every pair of values that can sit one above the
-other, so N values need N squared glyphs, and the private use area holds 6400 characters, 25 pages of
-256. Thirty-two colours in two brightness steps is 64 values, 4096 glyphs and 16 pages, which leaves a
-page over for the player's arrow and the compass letters.
-
-    development_resource_packs/minimap/font/glyph_E0.png        the arrow and the letters
-    development_resource_packs/minimap/font/glyph_E1..F0.png    every pair of terrain values
-    development_behavior_packs/minimap/scripts/palette.js       block id -> colour, for the script
+    development_resource_packs/minimap/textures/ui/minimap/cNN.png     one per value, NN its two letters (see code())
+    development_resource_packs/minimap/textures/ui/minimap/c.png       transparent, for no cell at all
+    development_resource_packs/minimap/textures/ui/minimap/czz.png     transparent, past the map's edge
+    development_resource_packs/minimap/textures/ui/minimap/arrowN.png  the player, eight ways
+    development_resource_packs/minimap/textures/ui/minimap/letterN.png the compass letters N E S W
+    development_behavior_packs/minimap/scripts/palette.js              block id -> colour, for the script
 
     python tools/palette.py            # write them
     python tools/palette.py --check    # exit 1 if any is out of date
 
-The terrain pages are contiguous from U+E100, so a pair's character is simply U+E100 plus top * 64 plus
-bottom, and no page arithmetic appears anywhere in the script.
+A value is named by two lower case letters, its hex digits written a to p ("03" is "ad"): lower case
+because a pack is unpacked onto Windows and macOS file systems, which do not tell "cA" from "ca", and
+letters because JSON UI turns a slice of the title made only of digits into a number, so "03" would
+come out as 3 and name a texture that is not there. Two letters name up to 256 values, so the palette
+can grow to Minecraft's full set of map colours and its four shades without the title or the HUD
+changing shape.
 """
 
 import argparse
@@ -39,21 +32,15 @@ import sys
 from PIL import Image, ImageDraw
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-FONT = os.path.join(ROOT, "development_resource_packs", "minimap", "font")
+TEXTURES = os.path.join(ROOT, "development_resource_packs", "minimap", "textures", "ui", "minimap")
 SCRIPTS = os.path.join(ROOT, "development_behavior_packs", "minimap", "scripts")
 
-# A page's cells are square, sized by the page's width over sixteen, so the cell has to be as tall as a
-# line of text and the art simply does not fill it across.
-CELL = 10           # the square cell a glyph is cut from, as tall as a line of text
-CELL_W = 4          # pixels of art across it; Minecraft adds one, so a map pixel is five wide
-CELL_H = 10         # pixels of art down it, holding two map pixels of five
-GRID = 16           # cells per row in a page, so 256 glyphs a page
 SHADES = (0.71, 1.0)    # a cell takes the darker step when it is lower than the cell to its north
-OVERLAY_PAGE = 0xE0
-TERRAIN_PAGE = 0xE1
+MARKER = 15         # pixels across the arrow texture, odd so the arrow has a middle column
+MAX_VALUES = 256    # what two hex digits can name
 
-# Minecraft's own map colours, the ones the map in your hand is drawn with. Thirty-two of them, because
-# every pair of values needs a glyph of its own and that is what fits in the private use area.
+# Minecraft's own map colours, the ones the map in your hand is drawn with. Thirty-two of them, from when
+# the map was a font and every pair of values needed a glyph; a cell is an image now, so the cap is 256.
 COLOURS: dict[str, tuple[int, int, int]] = {
     "unknown": (58, 58, 64),
     "border": (124, 100, 78),      # the parchment edge of the map item
@@ -341,8 +328,7 @@ DYES = ("white", "orange", "magenta", "light_blue", "yellow", "lime", "pink", "l
 DYED = ("wool", "carpet", "concrete", "terracotta", "glazed", "stained_glass", "glass_pane", "bed",
         "banner", "shulker_box", "candle", "mushroom", "dye", "wall_banner", "bundle")
 
-# Page E0. The player's arrow and the compass letters are two glyphs side by side, so they are eight
-# pixels across rather than four, which is enough to read.
+# The player's arrow and the compass letters, drawn over the cells by images of their own.
 ARROWS = ("n", "ne", "e", "se", "s", "sw", "w", "nw")
 LETTERS = ("N", "E", "S", "W")
 LETTER_PIXELS = {
@@ -351,9 +337,12 @@ LETTER_PIXELS = {
     "S": ("01111", "10000", "01110", "00001", "11110"),
     "W": ("10001", "10001", "10101", "11011", "01010"),
 }
-ARROW_COLOUR = (255, 255, 255)
-ARROW_BACK = (24, 24, 28)
-LETTER_COLOUR = (240, 240, 240)
+# a waypoint's colour as the menu offers it, and the map colour it is drawn in
+WAYPOINT_COLOURS = {"red": "fire", "orange": "orange", "yellow": "gold", "green": "emerald", "aqua": "diamond",
+                    "blue": "lapis", "purple": "purple", "pink": "pink", "white": "snow"}
+ARROW_COLOUR = (222, 46, 38)     # Xaero's minimap draws the player as a red arrow
+OUTLINE = (20, 20, 24)           # the dark edge round the arrow and the letters, so they read on any ground
+LETTER_COLOUR = (255, 255, 255)
 
 
 def resolved() -> dict[str, str]:
@@ -372,34 +361,19 @@ def values() -> list[tuple[int, int, int, int]]:
     return [shaded(colour, step) for colour in COLOURS.values() for step in SHADES]
 
 
-def terrain_pages() -> list[Image.Image]:
-    """A glyph for every pair of values, top half over bottom half, 256 to a page."""
-    palette = values()
-    half = CELL_H // 2
-    pages = []
-    for first in range(0, len(palette) ** 2, GRID * GRID):
-        page = Image.new("RGBA", (CELL * GRID, CELL * GRID), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(page)
-        for cell in range(GRID * GRID):
-            pair = first + cell
-            x, y = (cell % GRID) * CELL, (cell // GRID) * CELL
-            # a pixel is left clear under each half, so the line Minecraft puts between characters has
-            # its match between the rows and the grid over the map is even on all four sides
-            for value, offset in ((pair // len(palette), 0), (pair % len(palette), half)):
-                draw.rectangle((x, y + offset, x + CELL_W - 1, y + offset + half - 2), fill=palette[value])
-        pages.append(page)
-    return pages
+def cell(value: tuple[int, int, int, int]) -> Image.Image:
+    return Image.new("RGBA", (1, 1), value)
 
 
 def arrow(direction: str) -> Image.Image:
-    """One arrow, eight pixels across and ten down, to be cut into two glyphs."""
+    """The player's arrow, red with a dark edge on nothing, pointing one of eight ways."""
     scale = 8
-    width, height = CELL_W * 2 * scale, CELL_H * scale
-    image = Image.new("RGBA", (width, height), (*ARROW_BACK, 255))
+    size = MARKER * scale
+    image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
-    # a triangle pointing up, as fractions of the cell, then turned to face the direction; a notched
-    # arrowhead was tried first and eight pixels across is not enough to hold the notch
-    points = [(0.5, 0.06), (0.94, 0.94), (0.06, 0.94)]
+    # a triangle pointing up, as fractions of the square, then turned to face the direction
+    # kept within 0.4 of the middle, so turning it by 45 degrees does not push a corner off the square
+    points = [(0.5, 0.1), (0.75, 0.8), (0.5, 0.7), (0.25, 0.8)]
     turns = {"n": 0, "ne": 45, "e": 90, "se": 135, "s": 180, "sw": 225, "w": 270, "nw": 315}
     angle = math.radians(turns[direction])
     turned = []
@@ -408,40 +382,51 @@ def arrow(direction: str) -> Image.Image:
         # screen y grows downward, so this sign pair turns the arrow clockwise on screen
         rx = dx * math.cos(angle) - dy * math.sin(angle)
         ry = dx * math.sin(angle) + dy * math.cos(angle)
-        turned.append(((0.5 + rx) * width, (0.5 + ry) * height))
+        turned.append(((0.5 + rx) * size, (0.5 + ry) * size))
     draw.polygon(turned, fill=(*ARROW_COLOUR, 255))
-    small = image.resize((CELL_W * 2, CELL_H), Image.LANCZOS)
-    # eight pixels across is too few for a soft edge to read as an arrow, so take the shrunk shape back
-    # to two colours: every pixel more than half covered becomes arrow, the rest backdrop
-    for y in range(CELL_H):
-        for x in range(CELL_W * 2):
-            red, green, blue, _ = small.getpixel((x, y))
-            lit = (red + green + blue) / 3 > (sum(ARROW_BACK) + sum(ARROW_COLOUR)) / 6
-            small.putpixel((x, y), (*(ARROW_COLOUR if lit else ARROW_BACK), 255))
-    return small
+    small = image.resize((MARKER, MARKER), Image.BOX)
+    # the HUD draws this a few screen pixels across, where a soft edge reads as a smudge, so take the
+    # shrunk shape back to hard pixels (every pixel more than half covered becomes arrow) and edge it
+    return outlined({(x, y) for y in range(MARKER) for x in range(MARKER) if small.getpixel((x, y))[3] > 127},
+                    MARKER, MARKER, ARROW_COLOUR)
 
 
-def letter(character: str) -> Image.Image:
-    image = Image.new("RGBA", (CELL_W * 2, CELL_H), (*ARROW_BACK, 255))
-    rows = LETTER_PIXELS[character]
-    left, top = (CELL_W * 2 - len(rows[0])) // 2, (CELL_H - len(rows)) // 2
-    for row, bits in enumerate(rows):
-        for column, bit in enumerate(bits):
-            if bit == "1":
-                image.putpixel((left + column, top + row), (*LETTER_COLOUR, 255))
+def outlined(lit: set, width: int, height: int, colour: tuple) -> Image.Image:
+    """The lit pixels in colour, each pixel touching one (diagonals too) in OUTLINE, the rest clear."""
+    image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    for x, y in lit:
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                if 0 <= x + dx < width and 0 <= y + dy < height and (x + dx, y + dy) not in lit:
+                    image.putpixel((x + dx, y + dy), (*OUTLINE, 255))
+    for x, y in lit:
+        image.putpixel((x, y), (*colour, 255))
     return image
 
 
-def overlay_page() -> Image.Image:
-    """The arrows then the letters, each cut into its left half and its right half, left half first."""
-    page = Image.new("RGBA", (CELL * GRID, CELL * GRID), (0, 0, 0, 0))
-    wide = [arrow(direction) for direction in ARROWS] + [letter(character) for character in LETTERS]
-    for index, image in enumerate(wide):
-        for half in (0, 1):
-            cell = index * 2 + half
-            box = ((cell % GRID) * CELL, (cell // GRID) * CELL)
-            page.paste(image.crop((half * CELL_W, 0, (half + 1) * CELL_W, CELL_H)), box)
-    return page
+def letter(character: str) -> Image.Image:
+    """A compass letter, its five by five pixels white with a dark edge, on a clear seven by seven square."""
+    rows = LETTER_PIXELS[character]
+    lit = {(column + 1, row + 1) for row, bits in enumerate(rows) for column, bit in enumerate(bits) if bit == "1"}
+    return outlined(lit, len(rows[0]) + 2, len(rows) + 2, LETTER_COLOUR)
+
+
+def code(value: int) -> str:
+    """A value's two letters: its two hex digits, each written a to p, so no slice of a title is a number."""
+    return "".join(chr(ord("a") + int(digit, 16)) for digit in f"{value:02x}")
+
+
+def textures() -> dict[str, Image.Image]:
+    """Every texture the HUD names, by file name."""
+    clear = Image.new("RGBA", (1, 1), (0, 0, 0, 0))
+    files = {"c.png": clear, "czz.png": clear}
+    for number, value in enumerate(values()):
+        files[f"c{code(number)}.png"] = cell(value)
+    for number, direction in enumerate(ARROWS):
+        files[f"arrow{number}.png"] = arrow(direction)
+    for number, character in enumerate(LETTERS):
+        files[f"letter{number}.png"] = letter(character)
+    return files
 
 
 def palette_js() -> bytes:
@@ -454,8 +439,8 @@ def palette_js() -> bytes:
     if missing:
         raise SystemExit(f"named colours that do not exist and are not aliases: {', '.join(missing)}")
     count = len(names) * len(SHADES)
-    if count ** 2 > 25 * GRID * GRID:
-        raise SystemExit(f"{count} values need {count ** 2} glyphs, more than the private use area holds")
+    if count > MAX_VALUES:
+        raise SystemExit(f"{count} values do not fit in two hex digits")
     blocks = {f"minecraft:{block}": index[lookup[colour]] for block, colour in BLOCKS.items()}
     dumped_blocks = json.dumps(blocks, indent="\t", sort_keys=True)
     dumped_dyes = json.dumps({dye: index[lookup.get(dye, dye)] for dye in DYES}, indent="\t")
@@ -463,19 +448,13 @@ def palette_js() -> bytes:
     lines = [
         "// Generated by tools/palette.py. Do not edit: run the tool.",
         "//",
-        "// A map cell's value is colour * SHADES + brightness step, the darker step first. One character",
-        "// of the map holds two cells, one above the other, and its code point is GLYPH_TERRAIN + top *",
-        "// VALUES + bottom. The overlay page holds the player's arrow and the compass letters, each as a",
-        "// left half and a right half, so a marker is two characters wide and one tall.",
+        "// A map cell's value is colour * SHADES + brightness step, the darker step first. The map title",
+        "// names each cell's value in two lower case letters, its hex digits written a to p, which is",
+        "// its texture's name in the resource pack: textures/ui/minimap/caa.png and on.",
         "",
-        f"export const CELL_W = {CELL_W};",
-        f"export const CELL_H = {CELL_H};",
         f"export const SHADES = {len(SHADES)};",
         f"export const VALUES = {count};",
-        f"export const GLYPH_TERRAIN = 0x{TERRAIN_PAGE:02x}00;",
-        f"export const GLYPH_OVERLAY = 0x{OVERLAY_PAGE:02x}00;",
-        "export const ARROW = 0;",
-        f"export const LETTER_N = {len(ARROWS) * 2};",
+        f"export const ARROWS = {len(ARROWS)};",
         "",
         f"export const UNKNOWN = {index['unknown']};",
         f"export const BORDER = {index['border']};",
@@ -483,6 +462,13 @@ def palette_js() -> bytes:
         f"export const PASSIVE = {index['snow']};",
         f"export const PLAYER = {index['diamond']};",
         f"export const ITEM = {index['gold']};",
+        f"export const DEATH = {index['black']};",
+        f"export const GRID = {index['gray']};",
+        f"export const SLIME = {index['emerald']};",
+        "",
+        "// The colours a waypoint can be, as the menu names them.",
+        "export const WAYPOINT_COLOURS = " + json.dumps({name: index[colour] for name, colour in WAYPOINT_COLOURS.items()},
+                                                    indent="	") + ";",
         "",
         "// Every block whose colour is not a guess from its name.",
         f"export const BLOCKS = {dumped_blocks};",
@@ -544,22 +530,20 @@ def main() -> int:
     parser.add_argument("--check", action="store_true", help="report whether the written files are up to date")
     args = parser.parse_args()
 
-    files = {os.path.join(FONT, f"glyph_{OVERLAY_PAGE:02X}.png"): png(overlay_page())}
-    for number, page in enumerate(terrain_pages()):
-        files[os.path.join(FONT, f"glyph_{TERRAIN_PAGE + number:02X}.png")] = png(page)
+    files = {os.path.join(TEXTURES, name): png(image) for name, image in textures().items()}
     files[os.path.join(SCRIPTS, "palette.js")] = palette_js()
 
-    # a page left over from a palette that had more colours would still be loaded by the game
-    spare = [name for name in sorted(os.listdir(FONT)) if name.startswith("glyph_")
-             and os.path.join(FONT, name) not in files] if os.path.isdir(FONT) else []
+    # a texture left over from a palette that had more colours would still ship in the pack
+    spare = [name for name in sorted(os.listdir(TEXTURES))
+             if os.path.join(TEXTURES, name) not in files] if os.path.isdir(TEXTURES) else []
     for name in spare:
         print(f"{'stale' if args.check else 'removed'} {name}, which this palette does not use")
         if not args.check:
-            os.remove(os.path.join(FONT, name))
+            os.remove(os.path.join(TEXTURES, name))
 
     stale = [path for path, data in files.items() if not written(path, data, args.check)]
     print(f"{len(COLOURS)} colours x {len(SHADES)} steps = {len(COLOURS) * len(SHADES)} values, "
-          f"{(len(COLOURS) * len(SHADES)) ** 2} glyphs over {len(files) - 1} pages")
+          f"{len(files) - 1} textures")
     for path in sorted(stale):
         print(f"stale {os.path.relpath(path, ROOT)}")
     if args.check:

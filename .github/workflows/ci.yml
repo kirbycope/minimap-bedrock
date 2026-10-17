@@ -1,7 +1,8 @@
 name: Tests
 
-# Runs the static checks on every push and pull request: the manifests, the generated glyph pages and
-# colour table, the pack icons, and the names the scripts import from each other.
+# Runs the static checks on every push and pull request: the manifests, the generated textures, HUD and
+# colour table, the HUD's bindings against a title from the real script (node is on the runner), the
+# pack icons, and the names the scripts import from each other.
 
 on:
   push:
