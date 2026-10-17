@@ -268,7 +268,7 @@ def test_every_texture_the_hud_can_name_is_in_the_pack():
         assert os.path.isfile(os.path.join(folder, f"{name}.png")), f"textures/ui/minimap/{name}.png is missing"
 
 
-def rendered(settings, properties=None):
+def rendered(settings, properties=None, at=(0.5, 64, 0.5)):
     """The titles render.js draws for a player at 0.5, 64, 0.5 facing west, with these settings over
     a 16 cell map at a block a cell, and these dynamic properties on the player."""
     node = shutil.which("node")
@@ -298,7 +298,7 @@ def rendered(settings, properties=None):
                          "const dimension = { id: 'minecraft:overworld',"
                          " getBiome: () => ({ id: 'minecraft:dark_forest' }),"
                          " getLightLevel: () => 7, getSkyLightLevel: () => 15 };\n"
-                         "const player = { id: 1, location: { x: 0.5, y: 64, z: 0.5 }, dimension,"
+                         f"const player = {{ id: 1, location: {{ x: {at[0]}, y: {at[1]}, z: {at[2]} }}, dimension,"
                          " getRotation: () => ({ x: 0, y: 90 }), getDynamicProperty: (key) => properties[key] };\n"
                          f"process.stdout.write(JSON.stringify(draw(player, {json.dumps(everything)}, 0)));\n")
         with open(os.path.join(folder, "package.json"), "w") as handle:
@@ -402,6 +402,14 @@ def test_the_enlarged_map_is_the_biggest_the_zoom_allows():
                                           text=True, check=True).stdout)
     # 40 cells at 1 and 2 blocks a cell stay inside the 48 blocks the game answers for, 24 at 4, 12 at 8
     assert sizes == [40, 40, 24, 12, 16]
+
+
+def test_with_north_up_the_map_keeps_its_cells_until_the_player_crosses_one():
+    # a step of one block at two blocks a cell: unsnapped, every cell moved onto a new column, and in flight
+    # the map could not sample fast enough to keep up
+    rows = lambda titles: titles[1:]
+    assert rows(rendered({"zoom": 2}, at=(0.5, 64, 0.5))) == rows(rendered({"zoom": 2}, at=(1.5, 64, 0.5)))
+    assert rows(rendered({"zoom": 2}, at=(0.5, 64, 0.5))) != rows(rendered({"zoom": 2}, at=(2.5, 64, 0.5)))
 
 
 # --- the project art -------------------------------------------------------

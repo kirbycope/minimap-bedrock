@@ -23,10 +23,14 @@ export function draw(player, settings, tick) {
 	const dimension = player.dimension;
 	const layer = layerFor(player);
 	const origin = player.location;
-	const px = Math.floor(origin.x);
-	const pz = Math.floor(origin.z);
 	const yaw = player.getRotation().y;
 	const view = settings.rotate ? facing(yaw) : { rx: 1, rz: 0, fx: 0, fz: -1 };
+	// With north up the map is snapped to its cells, as Xaero's is: a cell keeps its column until the player
+	// has crossed a whole cell. Unsnapped, every block walked at 2 blocks a cell moved every cell onto a new
+	// column, which is half the map sampled again per block, and in flight the sampling budget never caught up.
+	const snap = settings.rotate ? 1 : zoom;
+	const px = Math.floor(Math.floor(origin.x) / snap) * snap;
+	const pz = Math.floor(Math.floor(origin.z) / snap) * snap;
 
 	// the grid, read out of the terrain cache, with the columns this pass can afford sampled on the way
 	const colour = new Array(size * size);

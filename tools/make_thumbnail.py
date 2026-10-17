@@ -44,10 +44,11 @@ TITLE = [
     dict(text="BEDROCK", style="white", cap=100, arc=-10),
 ]
 
-# Where the minimap sits in assets/background.png. It is lifted out and blown up,
-# because at its real size it is unreadable in a thumbnail.
-MINIMAP_BOX = (1489, 107, 1848, 461)
-PLATE_CROP = (60, 0, 1860, 1012)      # 16:9, above the hotbar and the taskbar
+# Where the minimap sits in assets/background.png, its compass letters included. It is
+# lifted out and blown up, because at its real size it is unreadable in a thumbnail.
+# The map is round, so only the map and its letters are lifted, not the sky round them.
+MINIMAP_BOX = (1693, 1, 1920, 228)
+PLATE_CROP = (0, 0, 1920, 1080)       # 16:9, above the taskbar
 
 STROKE, DEPTH, EXTRUDE_DEG, TRACK = 13, 8, 90, 5
 
@@ -219,6 +220,36 @@ def _card(img, rim=9, shadow=30):
     return out
 
 
+def _lift(img):
+    """The map as an RGBA image: everything in the box that is not sky. That keeps the disc, whose stepped
+    pixel edge a true circle would cut into, and the compass letters, which stand half out of the frame.
+    Nothing the map draws is sky coloured: water is a deeper blue and ice a greyer one."""
+    arr = np.asarray(img.convert("RGB")).astype(np.int16)
+    r, g, b = arr[..., 0], arr[..., 1], arr[..., 2]
+    sky = (b >= 225) & (r >= 110) & (r < 225) & (g >= 170)
+    alpha = np.where(sky, 0, 255).astype(np.uint8)
+    out = img.convert("RGBA")
+    out.putalpha(Image.fromarray(alpha, "L"))
+    return out
+
+
+def _shaped_card(img, rim=9, shadow=30):
+    """_card for something that is not a rectangle: the white rim and the shadow follow its alpha."""
+    pad = rim + shadow + 20
+    alpha = Image.new("L", (img.width + pad * 2, img.height + pad * 2), 0)
+    alpha.paste(img.getchannel("A"), (pad, pad))
+    ring = alpha.filter(ImageFilter.MaxFilter(rim * 2 + 1))
+    out = Image.new("RGBA", alpha.size, (0, 0, 0, 0))
+    sh = Image.new("RGBA", alpha.size, (0, 0, 0, 0))
+    sh.putalpha(ring.point(lambda v: v * 155 // 255).filter(ImageFilter.GaussianBlur(shadow * 0.55)))
+    out = Image.alpha_composite(out, sh)
+    white = Image.new("RGBA", alpha.size, (255, 255, 255, 0))
+    white.putalpha(ring)
+    out = Image.alpha_composite(out, white)
+    out.alpha_composite(img, (pad, pad))
+    return out
+
+
 def _patch_out(plate, box):
     """Paint the real minimap out of the plate before it becomes the backdrop.
 
@@ -242,11 +273,12 @@ def build():
     canvas = _grade(backdrop, sat=1.34, contrast=1.08, bright=0.97).convert("RGBA")
 
     # the minimap, lifted straight out of the capture and kept pixel sharp
-    mm = plate.crop(MINIMAP_BOX)
-    SCALE = 2.30
+    mm = _lift(plate.crop(MINIMAP_BOX))
+    SCALE = 3.6
     mm = mm.resize((int(mm.width * SCALE), int(mm.height * SCALE)), Image.NEAREST)
-    mm = _grade(mm, sat=1.28, contrast=1.10, bright=1.04)
-    canvas.alpha_composite(_card(mm), (1012, 104))
+    shaded = _grade(mm.convert("RGB"), sat=1.28, contrast=1.10, bright=1.04).convert("RGBA")
+    shaded.putalpha(mm.getchannel("A"))
+    canvas.alpha_composite(_shaped_card(shaded), (1020, 92))
 
     # the player, big in the corner and cropped by the frame the way Crossy Road
     # places him, turned toward the map with the near arm raised at it
