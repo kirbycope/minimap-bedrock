@@ -22,10 +22,10 @@ The titles are fixed width, because JSON UI can only cut a string at a byte coun
 keeps the first N bytes, and taking one prefix away from a longer one leaves the bytes between.
 
     header      mm:maph, then
-                    S             which of SIZES the map is, or "-" for no map
+                    S             which of SIZES the map is, or "x" for no map (a lone "-" reads as 0)
                     A             which of the eight arrows the player is
                     LLLL          which compass letter sits in the top, right, bottom and left edges
-                    VVVVV         for each of the INFO lines below, S again when the line is on and "-"
+                    VVVVV         for each of the INFO lines below, S again when the line is on and "x"
                                   when it is not, so a line's label needs one comparison, like the arrow's
                                   (JSON UI did not honour "and" over two slices)
                     info          INFO lines of INFO_WIDTH bytes, shown under the map in order (render.js
