@@ -12,21 +12,28 @@ the texture they name. That is a map of real pixels: square, any size, with no g
     python tools/hud.py            # write them
     python tools/hud.py --check    # exit 1 if either is out of date
 
-The title is fixed width, because JSON UI can only cut a string at a byte count it is given: '%.Ns'
+A title is at most 512 characters (the server refuses a longer one with "Invalid message length"), and a
+map 40 cells across is over 3,500, so the map goes as several titles: one header and a title per CHUNK
+rows. Each kind of title starts with its own marker, and the HUD keeps each in a data control of its
+own, which copies a title over only when one with its marker arrives. The script sends one title a tick
+and only those that changed.
+
+The titles are fixed width, because JSON UI can only cut a string at a byte count it is given: '%.Ns'
 keeps the first N bytes, and taking one prefix away from a longer one leaves the bytes between.
 
-    mm:map        the marker, so a title from anywhere else leaves the map alone
-    S             which of SIZES the map is, or "-" for no map
-    A             which of the eight arrows the player is
-    L             which compass letter sits in the top edge
-    C             "y" when the coordinates are shown
-    coordinates   COORDS bytes, padded on the left
-    rows          one per row of the map with its frame, top first, each COLUMNS cells of two hex digits,
-                  the right-hand cell first, so the map grows out of the corner it is anchored to. A
-                  cell past the map's edge is "zz", a transparent texture, and a row the map does not
-                  reach is not sent: its slice comes out empty and "c" is transparent too.
+    header      mm:maph, then
+                    S             which of SIZES the map is, or "-" for no map
+                    A             which of the eight arrows the player is
+                    L             which compass letter sits in the top edge
+                    C             "y" when the coordinates are shown
+                    coordinates   COORDS bytes, padded on the left
+    row chunk   mm:maprNN (NN the chunk, two digits), then up to CHUNK rows of the map with its frame,
+                top first, each COLUMNS cells of two hex digits, the right-hand cell first, so the map
+                grows out of the corner it is anchored to. A cell past the map's edge is "zz", a
+                transparent texture, and a row the map does not reach is not sent: its slice comes out
+                empty and "c" is transparent too. A chunk the map does not reach is sent with no rows.
 
-Each row control cuts its row out of the title once, and its cells cut from the row, so no cell works
+Each row control cuts its row out of its chunk once, and its cells cut from the row, so no cell works
 on the whole title every frame.
 """
 
@@ -50,13 +57,24 @@ LETTER = 5                            # GUI units across a compass letter
 TEXTURES = "textures/ui/minimap/"
 NO_CELL = "zz"
 
-FIELD_SIZE = len(MARKER)
+HEAD_MARKER = MARKER + "h"
+CHUNK = 5                             # map rows in one title: 9 + 5 * 84 bytes, inside the 512 a title may be
+CHUNKS = -(-COLUMNS // CHUNK)
+FIELD_SIZE = len(HEAD_MARKER)
 FIELD_ARROW = FIELD_SIZE + 1
 FIELD_LETTER = FIELD_ARROW + 1
 FIELD_COORDS_ON = FIELD_LETTER + 1
 FIELD_COORDS = FIELD_COORDS_ON + 1
 HEADER = FIELD_COORDS + COORDS
 ROW = COLUMNS * 2
+
+
+def chunk_marker(chunk: int) -> str:
+    return f"{MARKER}r{chunk:02d}"
+
+
+CHUNK_HEAD = len(chunk_marker(0))
+assert CHUNK_HEAD + CHUNK * ROW <= 512 and HEADER <= 512, "a title would be longer than the 512 a title may be"
 
 
 def field(start: int, length: int, source: str = "#preserved_text") -> str:
@@ -66,10 +84,10 @@ def field(start: int, length: int, source: str = "#preserved_text") -> str:
     return f"(('%.{start + length}s' * {source}) - ('%.{start}s' * {source}))"
 
 
-def from_data(expression: str, target: str) -> dict:
+def from_data(expression: str, target: str, source: str = "minimap_data") -> dict:
     return {
         "binding_type": "view",
-        "source_control_name": "minimap_data",
+        "source_control_name": source,
         "resolve_sibling_scope": True,
         "source_property_name": expression,
         "target_property_name": target,
@@ -77,13 +95,14 @@ def from_data(expression: str, target: str) -> dict:
 
 
 def showing(size: int) -> str:
-    return f"({field(FIELD_SIZE, 1)} = '{SIZES.index(size)}')"
+    # a one-digit slice comes out of JSON UI as a number, so it is compared with one
+    return f"({field(FIELD_SIZE, 1)} = {SIZES.index(size)})"
 
 
-def data_control() -> dict:
-    # the title is only there for a moment; this keeps the last map title until the next one, and is
-    # visible only for the frame a new one arrives, which is when visibility_changed copies it over
-    return {"minimap_data": {
+def data_control(name: str = "minimap_data", marker: str = HEAD_MARKER) -> dict:
+    # the title is only there for a moment; this keeps the last title with its marker until the next one,
+    # and is visible only for the frame a new one arrives, which is when visibility_changed copies it over
+    return {name: {
         "type": "panel",
         "size": [0, 0],
         "property_bag": {"#preserved_text": ""},
@@ -93,7 +112,7 @@ def data_control() -> dict:
              "binding_condition": "visibility_changed"},
             {"binding_type": "view",
              "source_property_name": f"(not (#hud_title_text_string = #preserved_text) and not "
-                                     f"((#hud_title_text_string - '{MARKER}') = #hud_title_text_string))",
+                                     f"((#hud_title_text_string - '{marker}') = #hud_title_text_string))",
              "target_property_name": "#visible"},
         ],
     }}
@@ -107,7 +126,8 @@ def row_control(row: int) -> dict:
         # "r" in front, so a cell's prefix starts with a byte the row never repeats. '-' takes away every
         # copy of what it is given, and without it the second cell's two bytes taken off the first four
         # would also take the second cell whenever it matched the first.
-        "bindings": [from_data(f"('r' + {field(HEADER + row * ROW, ROW)})", "#row")],
+        "bindings": [from_data(f"('r' + {field(CHUNK_HEAD + (row % CHUNK) * ROW, ROW)})", "#row",
+                               f"minimap_k{row // CHUNK}")],
     }}
 
 
@@ -181,7 +201,7 @@ def marker_controls(size: int) -> list[dict]:
 
 
 def hud() -> dict:
-    controls = [data_control()]
+    controls = [data_control()] + [data_control(f"minimap_k{chunk}", chunk_marker(chunk)) for chunk in range(CHUNKS)]
     controls += [row_control(row) for row in range(COLUMNS)]
     controls += [cell_control(row, column) for row in range(COLUMNS) for column in range(COLUMNS)]
     for size in SIZES:
@@ -232,6 +252,9 @@ def layout_js() -> str:
         f"export const SIZES = {json.dumps(SIZES)};",
         f"export const COLUMNS = {COLUMNS};",
         f"export const COORDS = {COORDS};",
+        f'export const HEAD_MARKER = "{HEAD_MARKER}";',
+        f"export const CHUNK = {CHUNK};",
+        f"export const CHUNKS = {CHUNKS};",
         f'export const NO_CELL = "{NO_CELL}";',
         "",
     ]

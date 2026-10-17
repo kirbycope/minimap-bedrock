@@ -5,7 +5,7 @@
 // out a row at a time as hex, fixed width, in the layout tools/hud.py sets down in hud_layout.js.
 
 import { ARROWS, BORDER, HOSTILE, ITEM, PASSIVE, PLAYER, SHADES, UNKNOWN } from "./palette.js";
-import { COLUMNS, COORDS, MARKER, NO_CELL, SIZES } from "./hud_layout.js";
+import { CHUNK, CHUNKS, COLUMNS, COORDS, HEAD_MARKER, MARKER, NO_CELL, SIZES } from "./hud_layout.js";
 import { columnAt, layerFor } from "./terrain.js";
 
 const BRIGHT = 1;          // the brightness step for ground level with, or above, what lies north of it
@@ -13,7 +13,7 @@ const DARK = 0;
 const MAX_ENTITIES = 64;   // drawn per map, so a mob farm cannot make the map the expensive part
 const CARDINALS = ["n", "e", "s", "w"];
 
-/** The map for one player, as the title to send them. */
+/** The map for one player, as the titles to send them: the header first, then a title per CHUNK rows. */
 export function draw(player, settings, tick) {
 	const { size, zoom } = settings;
 	const span = size + 2;     // the frame is a cell on every side
@@ -69,24 +69,36 @@ export function draw(player, settings, tick) {
 	const heading = settings.rotate ? CARDINALS[Math.round(turned(yaw + 180) / 90) % 4] : "n";
 	const arrow = settings.rotate ? 0 : pointing(yaw);
 	const coords = `${Math.floor(origin.x)}, ${Math.floor(origin.y)}, ${Math.floor(origin.z)}`;
-	let title = MARKER + SIZES.indexOf(size) + arrow + CARDINALS.indexOf(heading) + (settings.coords ? "y" : "n")
+	const head = HEAD_MARKER + SIZES.indexOf(size) + arrow + CARDINALS.indexOf(heading) + (settings.coords ? "y" : "n")
 		+ coords.padStart(COORDS).slice(0, COORDS);
 	// the right-hand cell first, because the HUD anchors the map by its top right corner
+	const rows = [];
 	for (let row = 0; row < span; row++) {
-		for (let cell = 0; cell < COLUMNS; cell++) {
-			title += cell < span ? hex(grid[row * span + span - 1 - cell]) : NO_CELL;
-		}
+		let line = "";
+		for (let cell = 0; cell < COLUMNS; cell++) line += cell < span ? hex(grid[row * span + span - 1 - cell]) : NO_CELL;
+		rows.push(line);
 	}
-	return title;
+	return [head, ...chunks(rows)];
+}
+
+/** The rows as chunk titles, each with its marker; a chunk past the map's last row goes empty. */
+function chunks(rows) {
+	const titles = [];
+	for (let chunk = 0; chunk < CHUNKS; chunk++) {
+		titles.push(`${MARKER}r${String(chunk).padStart(2, "0")}` + rows.slice(chunk * CHUNK, chunk * CHUNK + CHUNK).join(""));
+	}
+	return titles;
 }
 
 /** The title that takes the map off the screen. */
 export function hidden() {
-	return MARKER + "-00n" + " ".repeat(COORDS);
+	return [HEAD_MARKER + "-00n" + " ".repeat(COORDS), ...chunks([])];
 }
 
+/** A value's two letters, its hex digits written a to p: JSON UI reads a slice made only of digits as a
+number, so "03" would become 3 and name no texture. tools/palette.py names the textures the same way. */
 function hex(value) {
-	return value < 16 ? `0${value.toString(16)}` : value.toString(16);
+	return String.fromCharCode(97 + (value >> 4), 97 + (value & 15));
 }
 
 /** Mobs, players and dropped items, over the terrain they are standing on. */

@@ -7,4 +7,7 @@ export const MARKER = "mm:map";
 export const SIZES = [8, 12, 16, 20, 24, 32, 40];
 export const COLUMNS = 42;
 export const COORDS = 28;
+export const HEAD_MARKER = "mm:maph";
+export const CHUNK = 5;
+export const CHUNKS = 9;
 export const NO_CELL = "zz";

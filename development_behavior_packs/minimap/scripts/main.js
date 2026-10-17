@@ -10,11 +10,14 @@ import { draw, hidden } from "./render.js";
 import { beginPass } from "./terrain.js";
 import { forget, save, settingsOf } from "./settings.js";
 
-const REFRESH = 4;          // ticks between redraws
-const RESEND = 100;         // ticks after which an unchanged map is sent again
+const REFRESH = 4;          // ticks between redraws, at the most
+const RESEND = 100;         // ticks after which every part of the map is sent again, for a HUD rebuilt since
 const QUIET = 200;          // ticks of silence after a complaint, so one broken frame is not a wall of log
 
-const sent = new Map();   // player id -> { title, tick } of the last map sent
+// A title is at most 512 characters, so a map is several (render.js): the header and a title per few
+// rows. A player gets one title a tick, so the HUD sees every one of them, and only the parts that
+// changed since they were last sent. A player's queue is refilled once it has gone out.
+const players = new Map();   // player id -> { sent: [title per part], queue: [part index], drawn, resent }
 let complained = -QUIET;
 let spent = 0;      // milliseconds the last pass took, for minimap:perf
 let worst = 0;
@@ -22,22 +25,30 @@ let worst = 0;
 system.runInterval(() => {
 	const started = Date.now();
 	const tick = system.currentTick;
-	const players = world.getAllPlayers();
+	const all = world.getAllPlayers();
 	let widest = 0;
-	for (const player of players) {
+	for (const player of all) {
 		const settings = settingsOf(player);
 		if (settings.on) widest = Math.max(widest, settings.size * settings.size);
 	}
-	beginPass(widest);
-	for (const player of players) {
+	let began = false;
+	for (const player of all) {
 		try {
-			const settings = settingsOf(player);
-			const title = settings.on ? draw(player, settings, tick) : hidden();
-			const last = sent.get(player.id);
-			// a hidden map is said once, so a player who turned it off gets their titles back to themselves
-			if (last !== undefined && last.title === title && (!settings.on || tick - last.tick < RESEND)) continue;
-			player.onScreenDisplay.setTitle(title, { fadeInDuration: 0, stayDuration: 1, fadeOutDuration: 0 });
-			sent.set(player.id, { title, tick });
+			let state = players.get(player.id);
+			if (state === undefined) players.set(player.id, state = { sent: [], queue: [], parts: [], drawn: -REFRESH, resent: tick });
+			if (state.queue.length === 0 && tick - state.drawn >= REFRESH) {
+				const settings = settingsOf(player);
+				if (settings.on && !began) { beginPass(widest); began = true; }
+				state.parts = settings.on ? draw(player, settings, tick) : hidden();
+				state.drawn = tick;
+				const everything = tick - state.resent >= RESEND;
+				if (everything) state.resent = tick;
+				state.queue = state.parts.map((_, part) => part).filter((part) => everything || state.sent[part] !== state.parts[part]);
+			}
+			const part = state.queue.shift();
+			if (part === undefined) continue;
+			player.onScreenDisplay.setTitle(state.parts[part], { fadeInDuration: 0, stayDuration: 1, fadeOutDuration: 0 });
+			state.sent[part] = state.parts[part];
 		} catch (error) {
 			// a pass that throws sends nothing, and the HUD goes on showing the map before it
 			if (tick - complained >= QUIET) {
@@ -48,7 +59,7 @@ system.runInterval(() => {
 	}
 	spent = Date.now() - started;
 	if (spent > worst) worst = spent;
-}, REFRESH);
+}, 1);
 
 system.afterEvents.scriptEventReceive.subscribe((event) => {
 	const player = event.sourceEntity;
@@ -85,7 +96,7 @@ world.afterEvents.itemUse.subscribe((event) => {
 
 world.afterEvents.playerLeave.subscribe((event) => {
 	forget(event.playerId);
-	sent.delete(event.playerId);
+	players.delete(event.playerId);
 });
 
 function run(player, command, message) {
