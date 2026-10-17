@@ -29,6 +29,7 @@ pressed over and over:
 | Turn with me | off keeps north at the top and turns the arrow instead |
 | Mobs and players | the coloured dots |
 | Shape | square, or round as Xaero's minimap draws it |
+| Enlarged | the biggest map the zoom allows; sneaking as you use the compass does the same, and again puts it back |
 | Chunk grid | a dashed line along every chunk edge |
 | Slime chunks | a green checker over the chunks slimes spawn in |
 | Waypoints | add a named, coloured waypoint where you stand, delete one, and show or hide them and where you last died |
@@ -41,7 +42,8 @@ If you would rather type, `/scriptevent minimap:menu` opens the same menu, and `
 `minimap:off`, `minimap:toggle` and `minimap:set <setting> <value>` do what they say. The settings are
 `size`, `zoom`, `shape` (`square` or `circle`), `rotate`, `entities`, and the lines under the map:
 `coords`, `angle`, `biome`, `light` and `time`, each `true` or `false`, `waypoints` and `deathpoint`
-for the marks, and `grid` and `slime` for the overlays. `minimap:waypoint [colour] [name]` adds a waypoint where you stand; the colours are red,
+for the marks, `grid` and `slime` for the overlays, and `enlarged`. `minimap:enlarge` toggles the
+enlarged map. `minimap:waypoint [colour] [name]` adds a waypoint where you stand; the colours are red,
 orange, yellow, green, aqua, blue, purple, pink and white.
 
 ### What the map shows

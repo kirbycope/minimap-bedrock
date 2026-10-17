@@ -34,6 +34,8 @@ export function openMenu(player) {
 			() => step(player, "zoom", 1)],
 		[`Bigger (${settings.size} x ${settings.size})${capped(settings, "size")}`, () => step(player, "size", 1)],
 		["Smaller", () => step(player, "size", -1)],
+		[`Enlarged: ${settings.enlarged ? "on" : "off"} (or sneak and use the compass)`,
+			() => save(player, { enlarged: !settings.enlarged })],
 		[`Shape: ${settings.shape}`, () => save(player, { shape: settings.shape === "square" ? "circle" : "square" })],
 		[`Turn with me: ${settings.rotate ? "on" : "off"}`, () => save(player, { rotate: !settings.rotate })],
 		[`Mobs and players: ${settings.entities ? "on" : "off"}`, () => save(player, { entities: !settings.entities })],

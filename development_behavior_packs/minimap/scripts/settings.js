@@ -18,6 +18,7 @@ const DEFAULTS = {
 	biome: false,
 	light: false,
 	time: false,
+	enlarged: false, // the biggest map the zoom allows, for a moment, as Xaero's enlarged map
 	grid: false,     // the chunk grid
 	slime: false,    // slime chunks
 	waypoints: true,
@@ -81,7 +82,7 @@ function checked(settings) {
 	while (!fits(settings.size, settings.zoom) && settings.size > SIZES[0]) {
 		settings.size = SIZES[SIZES.indexOf(settings.size) - 1];
 	}
-	for (const key of ["on", "rotate", "entities", "waypoints", "deathpoint", "grid", "slime", ...LINES]) settings[key] = Boolean(settings[key]);
+	for (const key of ["on", "rotate", "entities", "enlarged", "waypoints", "deathpoint", "grid", "slime", ...LINES]) settings[key] = Boolean(settings[key]);
 	if (!SHAPES.includes(settings.shape)) settings.shape = DEFAULTS.shape;
 	return settings;
 }
@@ -96,6 +97,13 @@ export function step(player, key, direction) {
 	// growing past what the game will answer for would only add black, so the button stops there
 	if (direction > 0 && !fits(key === "size" ? next : other, key === "zoom" ? next : other)) return settings;
 	return save(player, { [key]: next });
+}
+
+/** The settings the map is drawn with: the biggest size that still fits the zoom while enlarged. */
+export function shownWith(settings) {
+	if (!settings.enlarged) return settings;
+	const size = SIZES.filter((each) => fits(each, settings.zoom)).pop() ?? settings.size;
+	return { ...settings, size };
 }
 
 export function forget(playerId) {

@@ -8,7 +8,7 @@ import { CommandPermissionLevel, CustomCommandStatus, system, world } from "@min
 import { openMenu } from "./menu.js";
 import { draw, hidden } from "./render.js";
 import { beginPass } from "./terrain.js";
-import { forget, save, settingsOf } from "./settings.js";
+import { forget, save, settingsOf, shownWith } from "./settings.js";
 import { addWaypoint, forgetWaypoints } from "./waypoints.js";
 import { WAYPOINT_COLOURS } from "./palette.js";
 
@@ -30,7 +30,7 @@ system.runInterval(() => {
 	const all = world.getAllPlayers();
 	let widest = 0;
 	for (const player of all) {
-		const settings = settingsOf(player);
+		const settings = shownWith(settingsOf(player));
 		if (settings.on) widest = Math.max(widest, settings.size * settings.size);
 	}
 	let began = false;
@@ -39,7 +39,7 @@ system.runInterval(() => {
 			let state = players.get(player.id);
 			if (state === undefined) players.set(player.id, state = { sent: [], queue: [], parts: [], drawn: -REFRESH, resent: tick });
 			if (state.queue.length === 0 && tick - state.drawn >= REFRESH) {
-				const settings = settingsOf(player);
+				const settings = shownWith(settingsOf(player));
 				if (settings.on && !began) { beginPass(widest); began = true; }
 				state.parts = settings.on ? draw(player, settings, tick) : hidden();
 				state.drawn = tick;
@@ -90,10 +90,12 @@ system.beforeEvents.startup.subscribe((event) => {
 });
 
 // A compass opens the menu. It is the one item in the game that is already about finding your way,
-// and it means the map can be set up without typing a command.
+// and it means the map can be set up without typing a command. Sneaking as you use it enlarges the map
+// instead, and does it again to put it back.
 world.afterEvents.itemUse.subscribe((event) => {
 	if (event.itemStack.typeId !== "minecraft:compass") return;
-	run(event.source, "menu", "");
+	if (event.source.isSneaking) run(event.source, "enlarge", "");
+	else run(event.source, "menu", "");
 });
 
 world.afterEvents.playerLeave.subscribe((event) => {
@@ -110,6 +112,9 @@ function run(player, command, message) {
 		case "on":
 		case "off":
 			save(player, { on: command === "on" });
+			break;
+		case "enlarge":
+			save(player, { enlarged: !settingsOf(player).enlarged });
 			break;
 		case "toggle":
 			save(player, { on: !settingsOf(player).on });

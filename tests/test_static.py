@@ -384,6 +384,26 @@ def test_the_chunk_grid_runs_along_chunk_edges():
     assert lined and all(row % 2 == lined[0] % 2 for row in lined) and len(lined) >= 7, lined
 
 
+def test_the_enlarged_map_is_the_biggest_the_zoom_allows():
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    with tempfile.TemporaryDirectory() as folder:
+        for name in ("settings.js", "hud_layout.js"):
+            shutil.copy(os.path.join(SCRIPTS, name), folder)
+        with open(os.path.join(folder, "package.json"), "w") as handle:
+            handle.write('{"type": "module"}\n')
+        with open(os.path.join(folder, "run.mjs"), "w") as handle:
+            handle.write("import { shownWith } from './settings.js';\n"
+                         "process.stdout.write(JSON.stringify([1, 2, 4, 8].map((zoom) =>"
+                         " shownWith({ size: 16, zoom, enlarged: true }).size).concat("
+                         "shownWith({ size: 16, zoom: 2, enlarged: false }).size)));\n")
+        sizes = json.loads(subprocess.run([node, os.path.join(folder, "run.mjs")], capture_output=True,
+                                          text=True, check=True).stdout)
+    # 40 cells at 1 and 2 blocks a cell stay inside the 48 blocks the game answers for, 24 at 4, 12 at 8
+    assert sizes == [40, 40, 24, 12, 16]
+
+
 # --- the project art -------------------------------------------------------
 #
 # The thumbnail is not part of either pack, so these only check that it can be
