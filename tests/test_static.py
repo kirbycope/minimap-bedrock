@@ -275,7 +275,7 @@ def rendered(settings, properties=None):
     if node is None:
         pytest.skip("node is not installed")
     with tempfile.TemporaryDirectory() as folder:
-        for name in ("render.js", "palette.js", "hud_layout.js", "waypoints.js"):
+        for name in ("render.js", "palette.js", "hud_layout.js", "waypoints.js", "slime.js"):
             shutil.copy(os.path.join(SCRIPTS, name), folder)
         # terrain.js reads the world; this one answers with a colour by the column's x, so east and
         # west can be told apart on the map
@@ -291,7 +291,7 @@ def rendered(settings, properties=None):
             handle.write("export const world = { getTimeOfDay: () => 7500, getDay: () => 3,"
                          " afterEvents: { entityDie: { subscribe() {} } } };\n")
         everything = {"size": 16, "zoom": 1, "rotate": False, "entities": False, "waypoints": False,
-                      "deathpoint": False, "shape": "square", **settings}
+                      "deathpoint": False, "grid": False, "slime": False, "shape": "square", **settings}
         with open(os.path.join(folder, "run.mjs"), "w") as handle:
             handle.write("import { draw } from './render.js';\n"
                          f"const properties = {json.dumps(properties or {})};\n"
@@ -346,6 +346,42 @@ def test_waypoints_draw_and_one_off_the_map_is_held_at_its_edge():
     # three blocks west, drawn where it is, as an X
     assert texture(9, 11) == bright(death), "the deathpoint is not where the player died"
     assert texture(8, 10) == bright(death) and texture(10, 12) == bright(death), "the deathpoint is not an X"
+
+
+# chunk x, z from -6 to 6, as SlimeChunkFinderAddonBE's MT19937 picks them
+SLIME_CHUNKS = [(-6, 0), (-4, -1), (-4, 2), (-3, -2), (-3, -1), (-1, 0), (0, -5), (0, -2), (0, 4), (0, 6),
+                (1, -2), (3, 0), (3, 1), (4, -6), (6, -4), (6, 5)]
+
+
+def test_slime_chunks_are_the_ones_bedrock_spawns_slimes_in():
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    with tempfile.TemporaryDirectory() as folder:
+        shutil.copy(os.path.join(SCRIPTS, "slime.js"), folder)
+        with open(os.path.join(folder, "package.json"), "w") as handle:
+            handle.write('{"type": "module"}\n')
+        with open(os.path.join(folder, "run.mjs"), "w") as handle:
+            handle.write("import { isSlimeChunk } from './slime.js';\n"
+                         "const found = [];\n"
+                         "for (let x = -6; x <= 6; x++) for (let z = -6; z <= 6; z++)"
+                         " if (isSlimeChunk(x, z)) found.push([x, z]);\n"
+                         "process.stdout.write(JSON.stringify(found));\n")
+        found = json.loads(subprocess.run([node, os.path.join(folder, "run.mjs")], capture_output=True,
+                                          text=True, check=True).stdout)
+    # what SlimeChunkFinderAddonBE's own Mersenne Twister gives for the same chunks
+    assert [tuple(chunk) for chunk in found] == SLIME_CHUNKS
+
+
+def test_the_chunk_grid_runs_along_chunk_edges():
+    palette = script("palette.js")
+    grid = int(re.search(r"export const GRID = (\d+)", palette).group(1))
+    state = drawn(rendered({"grid": True}))
+    texture = lambda row, cell: state[f"minimap_c{row}_{cell}"]["#texture"][len("textures/ui/minimap/c"):]
+    # the player is at x 0.5, and block 0, which starts a chunk, is the map's column 7 (Math.round takes
+    # its -0.5 to 0): the frame's column 8, which is cell 9 counting from the right of an 18 cell frame
+    lined = [row for row in range(1, 17) if texture(row, 9) == code(grid * 2 + 1)]
+    assert lined and all(row % 2 == lined[0] % 2 for row in lined) and len(lined) >= 7, lined
 
 
 # --- the project art -------------------------------------------------------

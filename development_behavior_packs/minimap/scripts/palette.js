@@ -15,6 +15,8 @@ export const PASSIVE = 14;
 export const PLAYER = 24;
 export const ITEM = 23;
 export const DEATH = 20;
+export const GRID = 31;
+export const SLIME = 25;
 
 // The colours a waypoint can be, as the menu names them.
 export const WAYPOINT_COLOURS = {

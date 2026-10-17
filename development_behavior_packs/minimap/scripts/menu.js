@@ -37,6 +37,8 @@ export function openMenu(player) {
 		[`Shape: ${settings.shape}`, () => save(player, { shape: settings.shape === "square" ? "circle" : "square" })],
 		[`Turn with me: ${settings.rotate ? "on" : "off"}`, () => save(player, { rotate: !settings.rotate })],
 		[`Mobs and players: ${settings.entities ? "on" : "off"}`, () => save(player, { entities: !settings.entities })],
+		[`Chunk grid: ${settings.grid ? "on" : "off"}`, () => save(player, { grid: !settings.grid })],
+		[`Slime chunks: ${settings.slime ? "on" : "off"}`, () => save(player, { slime: !settings.slime })],
 		[`Waypoints (${waypointsOf(player).length})`, () => { waypointMenu(player); return CLOSE; }],
 		...Object.entries(LABELS).map(([key, label]) =>
 			[`${label}: ${settings[key] ? "on" : "off"}`, () => save(player, { [key]: !settings[key] })]),

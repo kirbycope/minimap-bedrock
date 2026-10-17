@@ -463,6 +463,8 @@ def palette_js() -> bytes:
         f"export const PLAYER = {index['diamond']};",
         f"export const ITEM = {index['gold']};",
         f"export const DEATH = {index['black']};",
+        f"export const GRID = {index['gray']};",
+        f"export const SLIME = {index['emerald']};",
         "",
         "// The colours a waypoint can be, as the menu names them.",
         "export const WAYPOINT_COLOURS = " + json.dumps({name: index[colour] for name, colour in WAYPOINT_COLOURS.items()},

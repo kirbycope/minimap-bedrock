@@ -4,10 +4,11 @@
 // the texture its two characters of the title name. So the grid is built here as values, and written
 // out a row at a time as hex, fixed width, in the layout tools/hud.py sets down in hud_layout.js.
 
-import { ARROWS, BORDER, DEATH, HOSTILE, ITEM, PASSIVE, PLAYER, SHADES, UNKNOWN, WAYPOINT_COLOURS } from "./palette.js";
+import { ARROWS, BORDER, DEATH, GRID, HOSTILE, ITEM, PASSIVE, PLAYER, SHADES, SLIME, UNKNOWN, WAYPOINT_COLOURS } from "./palette.js";
 import { world } from "@minecraft/server";
 import { CHUNK, CHUNKS, COLUMNS, HEAD_MARKER, INFO, INFO_WIDTH, MARKER, NO_CELL, SIZES } from "./hud_layout.js";
 import { columnAt, layerFor } from "./terrain.js";
+import { isSlimeChunk } from "./slime.js";
 import { deathOf, waypointsOf } from "./waypoints.js";
 
 const BRIGHT = 1;          // the brightness step for ground level with, or above, what lies north of it
@@ -30,6 +31,7 @@ export function draw(player, settings, tick) {
 	// the grid, read out of the terrain cache, with the columns this pass can afford sampled on the way
 	const colour = new Array(size * size);
 	const height = new Array(size * size);
+	const chunk = new Array(size * size);   // which chunk each cell is in, for the overlays
 	for (let row = 0; row < size; row++) {
 		for (let column = 0; column < size; column++) {
 			// the player stands at the middle of the four cells in the centre, so the offsets are halves
@@ -41,6 +43,7 @@ export function draw(player, settings, tick) {
 			const at = row * size + column;
 			colour[at] = cell === undefined ? UNKNOWN : cell.c;
 			height[at] = cell === undefined ? undefined : cell.y;
+			chunk[at] = [x >> 4, z >> 4];
 		}
 	}
 
@@ -56,6 +59,7 @@ export function draw(player, settings, tick) {
 		}
 	}
 
+	overlays(colour, shade, chunk, settings);
 	if (settings.entities) blips(player, colour, settings, view);
 	marks(player, colour, shade, settings, view);
 
@@ -186,6 +190,32 @@ function blips(player, colour, settings, view) {
 		if (sx < 0 || sx >= size || sy < 0 || sy >= size) continue;
 		colour[sy * size + sx] = kind(entity);
 		drawn += 1;
+	}
+}
+
+/** Xaero's chunk grid and slime chunks. Both go over every other cell, so the ground still shows
+through: the grid as a dashed line where a cell is in another chunk from the cell before it, the
+slime chunks as a green checker. */
+function overlays(colour, shade, chunk, settings) {
+	const { size } = settings;
+	if (!settings.grid && !settings.slime) return;
+	for (let row = 0; row < size; row++) {
+		for (let column = 0; column < size; column++) {
+			const at = row * size + column;
+			const [cx, cz] = chunk[at];
+			const every = (row + column) % 2 === 0;
+			if (settings.slime && every && isSlimeChunk(cx, cz)) {
+				colour[at] = SLIME;
+				shade[at] = BRIGHT;
+			}
+			if (!settings.grid || !every) continue;
+			const left = column > 0 ? chunk[at - 1] : chunk[at];
+			const above = row > 0 ? chunk[at - size] : chunk[at];
+			if (left[0] !== cx || left[1] !== cz || above[0] !== cx || above[1] !== cz) {
+				colour[at] = GRID;
+				shade[at] = BRIGHT;
+			}
+		}
 	}
 }
 
