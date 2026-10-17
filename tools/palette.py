@@ -337,6 +337,9 @@ LETTER_PIXELS = {
     "S": ("01111", "10000", "01110", "00001", "11110"),
     "W": ("10001", "10001", "10101", "11011", "01010"),
 }
+# a waypoint's colour as the menu offers it, and the map colour it is drawn in
+WAYPOINT_COLOURS = {"red": "fire", "orange": "orange", "yellow": "gold", "green": "emerald", "aqua": "diamond",
+                    "blue": "lapis", "purple": "purple", "pink": "pink", "white": "snow"}
 ARROW_COLOUR = (222, 46, 38)     # Xaero's minimap draws the player as a red arrow
 OUTLINE = (20, 20, 24)           # the dark edge round the arrow and the letters, so they read on any ground
 LETTER_COLOUR = (255, 255, 255)
@@ -459,6 +462,11 @@ def palette_js() -> bytes:
         f"export const PASSIVE = {index['snow']};",
         f"export const PLAYER = {index['diamond']};",
         f"export const ITEM = {index['gold']};",
+        f"export const DEATH = {index['black']};",
+        "",
+        "// The colours a waypoint can be, as the menu names them.",
+        "export const WAYPOINT_COLOURS = " + json.dumps({name: index[colour] for name, colour in WAYPOINT_COLOURS.items()},
+                                                    indent="	") + ";",
         "",
         "// Every block whose colour is not a guess from its name.",
         f"export const BLOCKS = {dumped_blocks};",

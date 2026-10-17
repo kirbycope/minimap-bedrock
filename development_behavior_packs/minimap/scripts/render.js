@@ -4,10 +4,11 @@
 // the texture its two characters of the title name. So the grid is built here as values, and written
 // out a row at a time as hex, fixed width, in the layout tools/hud.py sets down in hud_layout.js.
 
-import { ARROWS, BORDER, HOSTILE, ITEM, PASSIVE, PLAYER, SHADES, UNKNOWN } from "./palette.js";
+import { ARROWS, BORDER, DEATH, HOSTILE, ITEM, PASSIVE, PLAYER, SHADES, UNKNOWN, WAYPOINT_COLOURS } from "./palette.js";
 import { world } from "@minecraft/server";
 import { CHUNK, CHUNKS, COLUMNS, HEAD_MARKER, INFO, INFO_WIDTH, MARKER, NO_CELL, SIZES } from "./hud_layout.js";
 import { columnAt, layerFor } from "./terrain.js";
+import { deathOf, waypointsOf } from "./waypoints.js";
 
 const BRIGHT = 1;          // the brightness step for ground level with, or above, what lies north of it
 const DARK = 0;
@@ -56,6 +57,7 @@ export function draw(player, settings, tick) {
 	}
 
 	if (settings.entities) blips(player, colour, settings, view);
+	marks(player, colour, shade, settings, view);
 
 	// the grid as values, framed: a square with a cell of frame all round, or a disc ringed by frame
 	const grid = new Array(span * span).fill(BORDER * SHADES + BRIGHT);
@@ -184,6 +186,46 @@ function blips(player, colour, settings, view) {
 		if (sx < 0 || sx >= size || sy < 0 || sy >= size) continue;
 		colour[sy * size + sx] = kind(entity);
 		drawn += 1;
+	}
+}
+
+const PLUS = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]];
+const CROSS = [[0, 0], [1, 1], [-1, -1], [1, -1], [-1, 1]];
+
+/** The waypoints and the deathpoint, over everything else. One off the map is held at its edge, in the
+direction it lies, as Xaero's minimap does, so the way to it is always on screen. */
+function marks(player, colour, shade, settings, view) {
+	const { size, zoom } = settings;
+	const here = player.dimension.id;
+	const spots = [];
+	if (settings.waypoints) {
+		for (const point of waypointsOf(player)) {
+			if (point.dimension === here) spots.push([point, WAYPOINT_COLOURS[point.colour] ?? WAYPOINT_COLOURS.white, PLUS]);
+		}
+	}
+	const death = deathOf(player);
+	if (settings.deathpoint && death !== undefined && death.dimension === here) spots.push([death, DEATH, CROSS]);
+	const middle = size / 2 - 0.5;
+	const limit = size / 2 - 1.5;   // far enough in that the whole mark stays on the map
+	for (const [point, value, shape] of spots) {
+		const dx = point.x + 0.5 - player.location.x;
+		const dz = point.z + 0.5 - player.location.z;
+		let cx = (dx * view.rx + dz * view.rz) / zoom;
+		let cy = -(dx * view.fx + dz * view.fz) / zoom;
+		const out = settings.shape === "circle" ? Math.hypot(cx, cy) : Math.max(Math.abs(cx), Math.abs(cy));
+		if (out > limit) {
+			cx *= limit / out;
+			cy *= limit / out;
+		}
+		const column = Math.round(cx + middle);
+		const row = Math.round(cy + middle);
+		for (const [ox, oy] of shape) {
+			const x = column + ox;
+			const y = row + oy;
+			if (x < 0 || x >= size || y < 0 || y >= size) continue;
+			colour[y * size + x] = value;
+			shade[y * size + x] = BRIGHT;
+		}
 	}
 }
 

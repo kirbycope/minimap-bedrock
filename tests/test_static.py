@@ -268,39 +268,48 @@ def test_every_texture_the_hud_can_name_is_in_the_pack():
         assert os.path.isfile(os.path.join(folder, f"{name}.png")), f"textures/ui/minimap/{name}.png is missing"
 
 
-def test_the_script_writes_a_title_the_hud_reads():
+def rendered(settings, properties=None):
+    """The titles render.js draws for a player at 0.5, 64, 0.5 facing west, with these settings over
+    a 16 cell map at a block a cell, and these dynamic properties on the player."""
     node = shutil.which("node")
     if node is None:
         pytest.skip("node is not installed")
-    marker, sizes, columns, info, none = layout()
     with tempfile.TemporaryDirectory() as folder:
-        for name in ("render.js", "palette.js", "hud_layout.js"):
+        for name in ("render.js", "palette.js", "hud_layout.js", "waypoints.js"):
             shutil.copy(os.path.join(SCRIPTS, name), folder)
         # terrain.js reads the world; this one answers with a colour by the column's x, so east and
         # west can be told apart on the map
         with open(os.path.join(folder, "terrain.js"), "w") as handle:
             handle.write("export function layerFor() { return 0; }\n"
                          "export function columnAt(d, l, x, z) { return { c: x > 0 ? 2 : 12, y: 64 }; }\n")
-        # and @minecraft/server only has to tell the time
+        # and @minecraft/server only has to tell the time and take a death listener
         server = os.path.join(folder, "node_modules", "@minecraft", "server")
         os.makedirs(server)
         with open(os.path.join(server, "package.json"), "w") as handle:
             handle.write('{"name": "@minecraft/server", "type": "module", "main": "index.js"}\n')
         with open(os.path.join(server, "index.js"), "w") as handle:
-            handle.write("export const world = { getTimeOfDay: () => 7500, getDay: () => 3 };\n")
+            handle.write("export const world = { getTimeOfDay: () => 7500, getDay: () => 3,"
+                         " afterEvents: { entityDie: { subscribe() {} } } };\n")
+        everything = {"size": 16, "zoom": 1, "rotate": False, "entities": False, "waypoints": False,
+                      "deathpoint": False, "shape": "square", **settings}
         with open(os.path.join(folder, "run.mjs"), "w") as handle:
             handle.write("import { draw } from './render.js';\n"
-                         "const dimension = { getBiome: () => ({ id: 'minecraft:dark_forest' }),"
+                         f"const properties = {json.dumps(properties or {})};\n"
+                         "const dimension = { id: 'minecraft:overworld',"
+                         " getBiome: () => ({ id: 'minecraft:dark_forest' }),"
                          " getLightLevel: () => 7, getSkyLightLevel: () => 15 };\n"
                          "const player = { id: 1, location: { x: 0.5, y: 64, z: 0.5 }, dimension,"
-                         " getRotation: () => ({ x: 0, y: 90 }) };\n"
-                         "process.stdout.write(JSON.stringify(draw(player, { size: 16, zoom: 1, rotate: false,"
-                         " entities: false, coords: true, angle: true, biome: true, light: true, time: true },"
-                         " 0)));\n")
+                         " getRotation: () => ({ x: 0, y: 90 }), getDynamicProperty: (key) => properties[key] };\n"
+                         f"process.stdout.write(JSON.stringify(draw(player, {json.dumps(everything)}, 0)));\n")
         with open(os.path.join(folder, "package.json"), "w") as handle:
             handle.write('{"type": "module"}\n')   # so an older node reads the scripts as modules too
-        titles = json.loads(subprocess.run([node, os.path.join(folder, "run.mjs")], capture_output=True,
-                                           text=True, check=True).stdout)
+        return json.loads(subprocess.run([node, os.path.join(folder, "run.mjs")], capture_output=True,
+                                          text=True, check=True).stdout)
+
+
+def test_the_script_writes_a_title_the_hud_reads():
+    marker, sizes, columns, info, none = layout()
+    titles = rendered({"coords": True, "angle": True, "biome": True, "light": True, "time": True})
     assert all(len(title) <= 512 for title in titles), "the server refuses a title over 512 characters"
     state = drawn(titles)
     size = 16
@@ -317,6 +326,26 @@ def test_the_script_writes_a_title_the_hud_reads():
     assert state[f"minimap_arrow_{size}"]["#texture"] == "textures/ui/minimap/arrow6"
     assert [state[f"minimap_info_{size}_{line}"]["#text"].strip() for line in range(5)] == \
         ["XYZ: 0, 64, 0", "W 90.0 / 0.0", "Dark Forest", "Light: 7 (sky 15)", "Day 3, 13:30"]
+
+
+def test_waypoints_draw_and_one_off_the_map_is_held_at_its_edge():
+    palette = script("palette.js")
+    red = json.loads(re.search(r"export const WAYPOINT_COLOURS = (\{[^}]*\})", palette).group(1))["red"]
+    death = int(re.search(r"export const DEATH = (\d+)", palette).group(1))
+    far_east = [{"name": "Base", "colour": "red", "x": 100, "y": 64, "z": 0, "dimension": "minecraft:overworld"}]
+    nearby = {"x": -3, "y": 64, "z": 0, "dimension": "minecraft:overworld"}
+    titles = rendered({"waypoints": True, "deathpoint": True},
+                      {"minimap:waypoints": json.dumps(far_east), "minimap:death": json.dumps(nearby)})
+    state = drawn(titles)
+    texture = lambda row, cell: state[f"minimap_c{row}_{cell}"]["#texture"][len("textures/ui/minimap/c"):]
+    bright = lambda colour: code(colour * 2 + 1)
+    # a hundred blocks east of a 16 cell map: held a cell in from the frame's east edge, mid height,
+    # which is the frame's row 9 and, counting from the right, its cell 2
+    assert texture(9, 2) == bright(red), "the waypoint is not held at the east edge"
+    assert texture(8, 2) == bright(red) and texture(9, 1) == bright(red), "the waypoint is not a plus"
+    # three blocks west, drawn where it is, as an X
+    assert texture(9, 11) == bright(death), "the deathpoint is not where the player died"
+    assert texture(8, 10) == bright(death) and texture(10, 12) == bright(death), "the deathpoint is not an X"
 
 
 # --- the project art -------------------------------------------------------

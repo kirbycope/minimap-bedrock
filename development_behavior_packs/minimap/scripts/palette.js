@@ -14,6 +14,20 @@ export const HOSTILE = 18;
 export const PASSIVE = 14;
 export const PLAYER = 24;
 export const ITEM = 23;
+export const DEATH = 20;
+
+// The colours a waypoint can be, as the menu names them.
+export const WAYPOINT_COLOURS = {
+	"red": 18,
+	"orange": 7,
+	"yellow": 23,
+	"green": 25,
+	"aqua": 24,
+	"blue": 26,
+	"purple": 27,
+	"pink": 28,
+	"white": 14
+};
 
 // Every block whose colour is not a guess from its name.
 export const BLOCKS = {

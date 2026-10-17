@@ -29,6 +29,7 @@ pressed over and over:
 | Turn with me | off keeps north at the top and turns the arrow instead |
 | Mobs and players | the coloured dots |
 | Shape | square, or round as Xaero's minimap draws it |
+| Waypoints | add a named, coloured waypoint where you stand, delete one, and show or hide them and where you last died |
 | Coordinates, Facing, Biome, Light level, Time of day | the lines of text under the map, each on or off |
 | Hide the map | turns it off; the compass still opens this menu |
 
@@ -37,7 +38,9 @@ Everything is per player and is remembered between sessions.
 If you would rather type, `/scriptevent minimap:menu` opens the same menu, and `minimap:on`,
 `minimap:off`, `minimap:toggle` and `minimap:set <setting> <value>` do what they say. The settings are
 `size`, `zoom`, `shape` (`square` or `circle`), `rotate`, `entities`, and the lines under the map:
-`coords`, `angle`, `biome`, `light` and `time`, each `true` or `false`.
+`coords`, `angle`, `biome`, `light` and `time`, each `true` or `false`, and `waypoints` and `deathpoint`
+for the marks. `minimap:waypoint [colour] [name]` adds a waypoint where you stand; the colours are red,
+orange, yellow, green, aqua, blue, purple, pink and white.
 
 ### What the map shows
 
@@ -49,7 +52,10 @@ drawn darker when it is lower than the cell to the north of it, which is what ma
 hills. Water and lava colour the ground they lie on, so a coast reads as a coast: the game's own
 "topmost block" answers with the floor of an ocean rather than the ocean, and the map asks what is
 standing on that floor. A red dot is a monster, white is an animal or a villager, light blue is
-another player and yellow is a dropped item. Under the map go whichever lines are on, in this order: your block coordinates, the way you face with
+another player and yellow is a dropped item.
+A waypoint is a plus in its colour and the place you last died is a black X. One too far away to be on
+the map is held at the map's edge in the direction it lies, as Xaero's minimap does, so you can steer
+for it. Under the map go whichever lines are on, in this order: your block coordinates, the way you face with
 the camera's yaw and pitch, the biome, the block and sky light where you stand, and the day and the hour.
 
 Underground, the map shows the level you are standing on rather than the sky above it, and the same in

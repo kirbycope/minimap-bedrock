@@ -4,7 +4,9 @@
 // over: zoom in twice, grow the map twice. Each press saves, closes and opens the menu
 // again, so the next press is one tap away and the labels always show where the settings now stand.
 
-import { ActionFormData } from "@minecraft/server-ui";
+import { ActionFormData, ModalFormData } from "@minecraft/server-ui";
+import { WAYPOINT_COLOURS } from "./palette.js";
+import { MAX_WAYPOINTS, addWaypoint, deathOf, removeWaypoint, waypointsOf } from "./waypoints.js";
 import { SIZES } from "./hud_layout.js";
 import { ZOOMS, fits, save, settingsOf, step } from "./settings.js";
 
@@ -35,6 +37,7 @@ export function openMenu(player) {
 		[`Shape: ${settings.shape}`, () => save(player, { shape: settings.shape === "square" ? "circle" : "square" })],
 		[`Turn with me: ${settings.rotate ? "on" : "off"}`, () => save(player, { rotate: !settings.rotate })],
 		[`Mobs and players: ${settings.entities ? "on" : "off"}`, () => save(player, { entities: !settings.entities })],
+		[`Waypoints (${waypointsOf(player).length})`, () => { waypointMenu(player); return CLOSE; }],
 		...Object.entries(LABELS).map(([key, label]) =>
 			[`${label}: ${settings[key] ? "on" : "off"}`, () => save(player, { [key]: !settings[key] })]),
 		["Hide the map", () => { save(player, { on: false }); return CLOSE; }],
@@ -46,5 +49,43 @@ export function openMenu(player) {
 		if (response.canceled || response.selection === undefined) return;
 		if (buttons[response.selection][1]() === CLOSE) return;
 		return openMenu(player);
+	});
+}
+
+const COLOUR_NAMES = Object.keys(WAYPOINT_COLOURS);
+
+/** Xaero's waypoint list: add one where you stand, show or hide them and the deathpoint, delete one. */
+function waypointMenu(player) {
+	const settings = settingsOf(player);
+	const points = waypointsOf(player);
+	const death = deathOf(player);
+	const buttons = [
+		[points.length < MAX_WAYPOINTS ? "Add one here" : `Add one here (the list is full at ${MAX_WAYPOINTS})`,
+			() => (points.length < MAX_WAYPOINTS ? addMenu(player) : undefined)],
+		[`Show waypoints: ${settings.waypoints ? "on" : "off"}`, () => save(player, { waypoints: !settings.waypoints })],
+		[`Show where I died: ${settings.deathpoint ? "on" : "off"}${death ? ` (${death.x}, ${death.y}, ${death.z})` : ""}`,
+			() => save(player, { deathpoint: !settings.deathpoint })],
+		...points.map((point, index) => [`Delete ${point.name} (${point.colour}, ${point.x}, ${point.y}, ${point.z})`,
+			() => removeWaypoint(player, index)]),
+		["Back", () => CLOSE],
+	];
+	const form = new ActionFormData().title("Waypoints");
+	for (const [label] of buttons) form.button(label);
+	return form.show(player).then(async (response) => {
+		if (response.canceled || response.selection === undefined) return;
+		if ((await buttons[response.selection][1]()) === CLOSE) return openMenu(player);
+		return waypointMenu(player);
+	});
+}
+
+function addMenu(player) {
+	const form = new ModalFormData()
+		.title("New waypoint")
+		.textField("Name", `Waypoint ${waypointsOf(player).length + 1}`)
+		.dropdown("Colour", COLOUR_NAMES.map((name) => name.charAt(0).toUpperCase() + name.slice(1)));
+	return form.show(player).then((response) => {
+		if (response.canceled || response.formValues === undefined) return;
+		const [name, colour] = response.formValues;
+		addWaypoint(player, String(name ?? ""), COLOUR_NAMES[Number(colour) || 0]);
 	});
 }

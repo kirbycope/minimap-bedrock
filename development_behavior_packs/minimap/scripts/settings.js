@@ -18,6 +18,8 @@ const DEFAULTS = {
 	biome: false,
 	light: false,
 	time: false,
+	waypoints: true,
+	deathpoint: true,
 	shape: "square",  // or "circle", as Xaero's minimap offers
 };
 
@@ -77,7 +79,7 @@ function checked(settings) {
 	while (!fits(settings.size, settings.zoom) && settings.size > SIZES[0]) {
 		settings.size = SIZES[SIZES.indexOf(settings.size) - 1];
 	}
-	for (const key of ["on", "rotate", "entities", ...LINES]) settings[key] = Boolean(settings[key]);
+	for (const key of ["on", "rotate", "entities", "waypoints", "deathpoint", ...LINES]) settings[key] = Boolean(settings[key]);
 	if (!SHAPES.includes(settings.shape)) settings.shape = DEFAULTS.shape;
 	return settings;
 }

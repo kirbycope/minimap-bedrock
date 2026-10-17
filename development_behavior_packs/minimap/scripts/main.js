@@ -9,6 +9,8 @@ import { openMenu } from "./menu.js";
 import { draw, hidden } from "./render.js";
 import { beginPass } from "./terrain.js";
 import { forget, save, settingsOf } from "./settings.js";
+import { addWaypoint, forgetWaypoints } from "./waypoints.js";
+import { WAYPOINT_COLOURS } from "./palette.js";
 
 const REFRESH = 4;          // ticks between redraws, at the most
 const RESEND = 100;         // ticks after which every part of the map is sent again, for a HUD rebuilt since
@@ -96,6 +98,7 @@ world.afterEvents.itemUse.subscribe((event) => {
 
 world.afterEvents.playerLeave.subscribe((event) => {
 	forget(event.playerId);
+	forgetWaypoints(event.playerId);
 	players.delete(event.playerId);
 });
 
@@ -122,6 +125,13 @@ function run(player, command, message) {
 			// a word that is not true or false is a setting's name for itself, as in shape circle
 			const word = value === "true" || value === "false" ? value === "true" : value;
 			save(player, { [key]: Number.isNaN(number) ? word : number });
+			break;
+		}
+		case "waypoint": {
+			// /scriptevent minimap:waypoint [colour] [name], a waypoint where you stand
+			const words = message.trim().split(/\s+/).filter(Boolean);
+			const colour = words[0] in WAYPOINT_COLOURS ? words.shift() : "white";
+			if (!addWaypoint(player, words.join(" "), colour)) player.sendMessage("[minimap] the waypoint list is full");
 			break;
 		}
 		case "perf": {
