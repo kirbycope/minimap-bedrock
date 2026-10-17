@@ -113,11 +113,12 @@ function chunks(rows) {
 
 /** The title that takes the map off the screen. */
 export function hidden() {
-	return [HEAD_MARKER + "-0123" + "-".repeat(INFO) + " ".repeat(INFO * INFO_WIDTH), ...chunks([])];
+	// "x", not "-": JSON UI reads a lone "-" as the number 0, the first size, so the arrow and letters stayed up
+	return [HEAD_MARKER + "x0123" + "x".repeat(INFO) + " ".repeat(INFO * INFO_WIDTH), ...chunks([])];
 }
 
 /** The lines under the map, as Xaero's minimap has them: which are on, as the map's size for a line that
-is and "-" for one that is not, then whichever they are, in this order, each padded to INFO_WIDTH. */
+is and "x" for one that is not, then whichever they are, in this order, each padded to INFO_WIDTH. */
 function lines(player, settings, sizeIndex) {
 	const at = player.location;
 	const feet = { x: Math.floor(at.x), y: Math.floor(at.y), z: Math.floor(at.z) };
@@ -134,7 +135,7 @@ function lines(player, settings, sizeIndex) {
 	}
 	if (settings.time) shown.push(clock());
 	let text = "";
-	for (let line = 0; line < INFO; line++) text += line < shown.length ? sizeIndex : "-";
+	for (let line = 0; line < INFO; line++) text += line < shown.length ? sizeIndex : "x";
 	for (let line = 0; line < INFO; line++) text += (shown[line] ?? "").slice(0, INFO_WIDTH).padStart(INFO_WIDTH);
 	return text;
 }

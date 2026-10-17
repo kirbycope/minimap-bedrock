@@ -117,6 +117,8 @@ def numeric(value):
     """JSON UI's reading of a slice: one that starts with a number, after any spaces, is that number."""
     if not isinstance(value, str):
         return value
+    if value.strip() == "-":
+        return 0   # a lone minus sign is read as nothing, which is 0
     number = re.match(r"\s*(-?\d+)", value)
     return int(number.group(1)) if number else value
 
@@ -234,7 +236,7 @@ def test_every_cell_of_the_hud_shows_the_value_the_title_gives_it():
     lines, width = info
     # two lines on, the rest blank, which the HUD must not show
     text = ["XYZ: 12, 64, -3", "Plains", "", "", ""]
-    titles = [head_marker + str(sizes.index(size)) + "5" + "2301" + str(sizes.index(size)) * 2 + "---" + "".join(line.rjust(width) for line in text)]
+    titles = [head_marker + str(sizes.index(size)) + "5" + "2301" + str(sizes.index(size)) * 2 + "xxx" + "".join(line.rjust(width) for line in text)]
     titles += [f"{marker}r{n:02d}" + "".join(rows[n * chunk:n * chunk + chunk]) for n in range(-(-columns // chunk))]
     state = drawn(titles)
     for row in range(columns):
@@ -351,6 +353,33 @@ def test_waypoints_draw_and_one_off_the_map_is_held_at_its_edge():
 # chunk x, z from -6 to 6, as SlimeChunkFinderAddonBE's MT19937 picks them
 SLIME_CHUNKS = [(-6, 0), (-4, -1), (-4, 2), (-3, -2), (-3, -1), (-1, 0), (0, -5), (0, -2), (0, 4), (0, 6),
                 (1, -2), (3, 0), (3, 1), (4, -6), (6, -4), (6, 5)]
+
+
+def test_the_hidden_map_shows_no_arrow_letters_or_lines():
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    with tempfile.TemporaryDirectory() as folder:
+        for name in ("render.js", "palette.js", "hud_layout.js", "waypoints.js", "slime.js"):
+            shutil.copy(os.path.join(SCRIPTS, name), folder)
+        with open(os.path.join(folder, "terrain.js"), "w") as handle:
+            handle.write("export function layerFor() { return 0; }\nexport function columnAt() { return undefined; }\n")
+        server = os.path.join(folder, "node_modules", "@minecraft", "server")
+        os.makedirs(server)
+        with open(os.path.join(server, "package.json"), "w") as handle:
+            handle.write('{"name": "@minecraft/server", "type": "module", "main": "index.js"}\n')
+        with open(os.path.join(server, "index.js"), "w") as handle:
+            handle.write("export const world = { afterEvents: { entityDie: { subscribe() {} } } };\n")
+        with open(os.path.join(folder, "package.json"), "w") as handle:
+            handle.write('{"type": "module"}\n')
+        with open(os.path.join(folder, "run.mjs"), "w") as handle:
+            handle.write("import { hidden } from './render.js';\nprocess.stdout.write(JSON.stringify(hidden()));\n")
+        titles = json.loads(subprocess.run([node, os.path.join(folder, "run.mjs")], capture_output=True,
+                                          text=True, check=True).stdout)
+    state = drawn(titles)
+    shown = [name for name, props in state.items() if props.get("#visible") is True and
+             name.startswith(("minimap_arrow_", "minimap_letter_", "minimap_info_"))]
+    assert shown == [], f"a hidden map still shows {shown[:4]}"
 
 
 def test_slime_chunks_are_the_ones_bedrock_spawns_slimes_in():
